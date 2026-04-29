@@ -25,7 +25,7 @@ type SDEdge = Edge<EdgeData>;
 
 const ASYNC_PROTOCOLS: Protocol[] = ['kafka', 'amqp', 'mqtt', 'websocket'];
 
-const ProtocolSchema = z.enum([
+const VALID_PROTOCOLS: Protocol[] = [
   'rest',
   'grpc',
   'graphql',
@@ -37,7 +37,42 @@ const ProtocolSchema = z.enum([
   'sql',
   'redis',
   'tcp',
-]);
+];
+
+/**
+ * Common AI/user shortcuts that aren't actual wire protocols. Coerced to
+ * the closest real protocol so the patch still validates.
+ */
+const PROTOCOL_ALIASES: Record<string, Protocol> = {
+  sqs: 'amqp',
+  sns: 'amqp',
+  rabbitmq: 'amqp',
+  pubsub: 'amqp',
+  http: 'rest',
+  https: 'rest',
+  json: 'rest',
+  ws: 'websocket',
+  wss: 'websocket',
+  proto: 'grpc',
+  protobuf: 'grpc',
+  postgres: 'sql',
+  mysql: 'sql',
+  cassandra: 'sql',
+  mongo: 'sql',
+  mongodb: 'sql',
+  redisproto: 'redis',
+};
+
+// Tolerant: known protocol passes through, alias gets coerced, anything
+// else is dropped to undefined — the apply step then picks a sensible
+// default based on source/target tones.
+const ProtocolSchema = z.preprocess((val) => {
+  if (typeof val !== 'string') return undefined;
+  const lower = val.toLowerCase().trim();
+  if ((VALID_PROTOCOLS as string[]).includes(lower)) return lower;
+  if (lower in PROTOCOL_ALIASES) return PROTOCOL_ALIASES[lower];
+  return undefined;
+}, z.enum(VALID_PROTOCOLS as [Protocol, ...Protocol[]]).optional());
 
 const PositionSchema = z
   .object({ x: z.number(), y: z.number() })
@@ -60,7 +95,7 @@ const AddEdgeSchema = z.object({
   op: z.literal('add_edge'),
   source: z.string(),
   target: z.string(),
-  protocol: ProtocolSchema.optional(),
+  protocol: ProtocolSchema, // already optional via preprocess
   description: z.string().optional(),
   async: z.boolean().optional(),
 });
