@@ -121,42 +121,131 @@ export interface ParsedPatchBlock {
   errors: string[];
 }
 
-const FENCE_RE = /```sd-patch\s*\n([\s\S]*?)```/g;
+// Match every fenced code block; we'll inspect the body to decide if it's a
+// patch. Models in the wild use ```sd-patch, ```json, or even just ``` —
+// we handle all three.
+const ANY_FENCE_RE = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
 
 /**
- * Parses every ```sd-patch fenced block in the supplied text. Tolerant: bad
- * blocks become an entry with errors[]; good ones return validated patches.
+ * Tries to read the body as either a JSON array, a single JSON object, or a
+ * sequence of objects on consecutive lines (no commas/brackets — common
+ * model failure mode). Returns parsed array or null.
+ */
+function parseLenientJson(body: string): unknown[] | null {
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+
+  // 1. Try as-is (array or single object).
+  try {
+    const v = JSON.parse(trimmed);
+    return Array.isArray(v) ? v : [v];
+  } catch {
+    /* fallthrough */
+  }
+
+  // 2. Wrap in [] if the body looks like newline/comma separated objects.
+  //    `}{` between objects → insert comma; then wrap.
+  if (/^\s*\{/.test(trimmed) && /\}\s*$/.test(trimmed)) {
+    const joined = `[${trimmed.replace(/\}\s*\n+\s*\{/g, '},\n{')}]`;
+    try {
+      const v = JSON.parse(joined);
+      if (Array.isArray(v)) return v;
+    } catch {
+      /* fallthrough */
+    }
+  }
+
+  // 3. Last resort: extract every {...} substring greedily and parse each.
+  const objects: unknown[] = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < trimmed.length; i++) {
+    const c = trimmed[i];
+    if (c === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try {
+          objects.push(JSON.parse(trimmed.slice(start, i + 1)));
+        } catch {
+          /* skip */
+        }
+        start = -1;
+      }
+    }
+  }
+  return objects.length > 0 ? objects : null;
+}
+
+/** True if a parsed value looks patch-shaped (has the `op` discriminator). */
+function looksLikePatch(v: unknown): boolean {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as { op?: unknown }).op === 'string'
+  );
+}
+
+/**
+ * Parses every fenced block. Recognizes ` ```sd-patch `, ` ```json `, and
+ * unlabeled fences if their body parses to objects with an `op` field. This
+ * tolerance is essential — local models routinely emit ```json instead of
+ * the documented ```sd-patch fence.
+ *
+ * We track which fences were patch-bearing so the chat renderer can hide
+ * exactly those (and not other innocent JSON blocks).
  */
 export function parsePatches(text: string): ParsedPatchBlock[] {
   const out: ParsedPatchBlock[] = [];
-  for (const match of text.matchAll(FENCE_RE)) {
+  for (const match of text.matchAll(ANY_FENCE_RE)) {
     const raw = match[0];
-    const body = (match[1] ?? '').trim();
-    if (!body) continue;
+    const fenceLang = (match[1] ?? '').toLowerCase();
+    const body = match[2] ?? '';
+
+    const explicitPatchFence = fenceLang === 'sd-patch';
+    const candidate = parseLenientJson(body);
+
+    // Skip non-patch blocks (regular code samples, plain text, etc.).
+    if (!explicitPatchFence) {
+      if (!candidate || candidate.length === 0) continue;
+      if (!candidate.some(looksLikePatch)) continue;
+    }
+
     const errors: string[] = [];
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(body);
-    } catch (e) {
-      errors.push(`Invalid JSON: ${(e as Error).message}`);
-      out.push({ raw, patches: [], errors });
+    const patches: AiPatch[] = [];
+    if (!candidate) {
+      errors.push('Invalid JSON inside fenced block');
+      out.push({ raw, patches, errors });
       continue;
     }
-    const arr = Array.isArray(parsed) ? parsed : [parsed];
-    const patches: AiPatch[] = [];
-    for (let i = 0; i < arr.length; i++) {
-      const r = AiPatchSchema.safeParse(arr[i]);
+    for (let i = 0; i < candidate.length; i++) {
+      const r = AiPatchSchema.safeParse(candidate[i]);
       if (r.success) patches.push(r.data);
-      else errors.push(`#${i}: ${r.error.issues.map((x) => x.message).join('; ')}`);
+      else
+        errors.push(
+          `#${i}: ${r.error.issues.map((x) => x.message).join('; ')}`,
+        );
     }
     out.push({ raw, patches, errors });
   }
   return out;
 }
 
-/** Strips fenced ```sd-patch blocks from text so chat renders cleanly. */
+/**
+ * Strips every fence we recognized as patch-bearing so the chat doesn't
+ * show raw JSON to the user. Non-patch fences (regular code) are kept.
+ */
 export function stripPatchFences(text: string): string {
-  return text.replace(FENCE_RE, '').replace(/\n{3,}/g, '\n\n').trim();
+  let out = text;
+  const blocks = parsePatches(text);
+  for (const b of blocks) {
+    if (b.patches.length > 0 || b.errors.length > 0) {
+      out = out.replace(b.raw, '');
+    }
+  }
+  return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -176,11 +265,19 @@ function resolveRef(token: string, ctx: ApplyContext): string | null {
   if (token === '$last') return ctx.lastNodeId;
   if (token.startsWith('$')) {
     const name = token.slice(1);
-    return ctx.refMap.get(name) ?? null;
+    const fromRef = ctx.refMap.get(name);
+    if (fromRef) return fromRef;
+    // Fallback: many models stick `$` in front of existing node ids by
+    // mistake. If the bare name (or any prefix-match id) exists, accept it.
+    return resolveRef(name, ctx);
   }
-  // Direct id — must exist in the working node set.
+  // Exact id match
   if (ctx.nodes.some((n) => n.id === token)) return token;
-  return null;
+  // Prefix match — model often shortens "postgres-abc123" to "postgres".
+  const byPrefix = ctx.nodes.find(
+    (n) => n.id.startsWith(`${token}-`) || n.data?.label === token,
+  );
+  return byPrefix ? byPrefix.id : null;
 }
 
 function defaultProtocolFor(

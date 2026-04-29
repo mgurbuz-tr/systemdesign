@@ -41,10 +41,12 @@ Patch formatı (JSON array). Her op şöyle:
 - {"op":"remove_node","id":"<id>"}
 - {"op":"remove_edge","id":"<id>"}
 
-KURALLAR:
+KURALLAR (kesinlikle uy):
 - Patch bloğunu SADECE kullanıcı bir değişiklik istediyse üret. Saf analiz/cevap için patch yok.
-- Tek mesajda en fazla bir \`\`\`sd-patch bloğu kullan. Bloğu gereksiz uzatma — gerekenden fazla op atma.
-- Var olmayan id'lere referans verme. CURRENT CANVAS bölümündeki id'leri ya da \`$ref\`/\`$last\` kullan.
+- Fence ETİKETİ \`\`\`sd-patch OLMAK ZORUNDA. \`\`\`json kullanma, etiketsiz \`\`\` kullanma.
+- İçerik **TEK bir JSON ARRAY** olmalı: \`[ {...}, {...} ]\`. Birden fazla obje yazıyorsan bracket'la ve aralarına virgül koy.
+- Tek mesajda en fazla **bir** sd-patch bloğu kullan; bloğu gereksiz uzatma.
+- VAR OLAN node'a referans verirken \`$\` KOYMA. \`$\` SADECE aynı patch listesinde \`ref\` ile tanımladığın yeni node'lar için. CURRENT CANVAS'taki id (örn \`gw\`, \`pg-abc\`) düz yazılır.
 - Açıklamanda kullanıcıya niye bu değişikliği önerdiğini söyle, sonra patch'i ver.
 
 ÖRNEK:
