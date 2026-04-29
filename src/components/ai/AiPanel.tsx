@@ -174,15 +174,25 @@ export function AiPanel() {
     setMessages((all) =>
       all.map((m) => {
         if (m.id !== id) return m;
+        // MERGE all fenced blocks in one assistant message into a single
+        // proposal. Models often split patches across separate ```json
+        // fences (one per suggestion), which would otherwise scope `ref`s
+        // to that block only — add_edge in block #2 can't see refs from
+        // block #1. Merging gives a shared scope and a single Apply.
         const blocks = parsePatches(m.content);
-        const proposals: PatchProposal[] = blocks
-          .filter((b) => b.patches.length > 0 || b.errors.length > 0)
-          .map((b) => ({
-            id: uid('prop'),
-            patches: b.patches,
-            errors: b.errors,
-            state: 'proposed' as const,
-          }));
+        const allPatches = blocks.flatMap((b) => b.patches);
+        const allErrors = blocks.flatMap((b) => b.errors);
+        const proposals: PatchProposal[] =
+          allPatches.length > 0 || allErrors.length > 0
+            ? [
+                {
+                  id: uid('prop'),
+                  patches: allPatches,
+                  errors: allErrors,
+                  state: 'proposed' as const,
+                },
+              ]
+            : [];
         return { ...m, streaming: false, proposals };
       }),
     );
