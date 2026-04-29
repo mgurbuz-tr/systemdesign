@@ -21,13 +21,15 @@ seçenekleri sunar. Sadece kullanıcı izin verirse uygulanır.
 
 Patch formatı (JSON array). Her op şöyle:
 
-- {"op":"add_node","type":"<catalog-type>","label":"<isim>","ref":"<takma-ad>","position":{"x":300,"y":140}}
+- {"op":"add_node","type":"<catalog-type>","label":"<isim>","ref":"<takma-ad>","position":{"x":300,"y":140},"parent":"<grup-id-veya-$ref>"}
   • type catalog'tan: postgres, mysql, mongo, dynamo, cassandra, clickhouse, redis, memcached, kafka,
     rabbitmq, nats, sqs, hangfire, sidekiq, service, lambda, container, gateway, lb, cdn, llm,
     embedding, vector, web, mobile, desktop, prometheus, grafana, jaeger, sentry, oauth, vault, vb.
   • label optional — yoksa catalog default'u (örn "PostgreSQL").
   • ref optional — sonraki op'lardan referans için (\`source: "$ref-adı"\`).
   • position optional — verilmezse otomatik konumlanır.
+  • **parent** optional — eğer node bir grup içinde olmalıysa (örn. "Edge tier", "Data plane") grup id'sini ya da \`$ref\`'ini yaz. Verilmezse pozisyon grup içine düşüyorsa otomatik attach edilir.
+  • CURRENT CANVAS'ta var olan grupları gör; "data" toned servis ekliyorsan ilgili "Data" grubuna parent ver.
 
 - {"op":"add_edge","source":"<id|$ref|$last>","target":"<id|$ref|$last>","protocol":"<rest|grpc|graphql|websocket|signalr|amqp|kafka|mqtt|sql|redis|tcp>","description":"<opsiyonel>"}
   • source/target: var olan node id'si VEYA aynı patch listesinde tanımlı bir \`$ref\` VEYA bir önceki add_node için \`$last\`.

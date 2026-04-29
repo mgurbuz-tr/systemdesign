@@ -52,6 +52,8 @@ const AddNodeSchema = z.object({
   position: PositionSchema.optional(),
   /** Local handle for cross-references in the same patch list. */
   ref: z.string().optional(),
+  /** Optional parent group — id, $ref, or label. Position becomes relative. */
+  parent: z.string().optional(),
 });
 
 const AddEdgeSchema = z.object({
@@ -354,12 +356,15 @@ export function applyPatches(patches: AiPatch[]): {
   warnings: string[];
 } {
   const state = useCanvas.getState();
+  // Deep clone so subsequent xyflow mutations (drag, resize, measured field)
+  // don't bleed into the snapshot we'll use for revert.
+  const deepClone = <T>(v: T): T =>
+    typeof structuredClone === 'function'
+      ? structuredClone(v)
+      : (JSON.parse(JSON.stringify(v)) as T);
   const snapshot: PatchSnapshot = {
-    nodes: state.nodes.map((n) => ({ ...n, data: { ...n.data } })),
-    edges: state.edges.map((e) => ({
-      ...e,
-      data: e.data ? { ...e.data } : undefined,
-    })),
+    nodes: deepClone(state.nodes),
+    edges: deepClone(state.edges),
   };
 
   const ctx: ApplyContext = {
@@ -376,11 +381,56 @@ export function applyPatches(patches: AiPatch[]): {
   for (const p of patches) {
     switch (p.op) {
       case 'add_node': {
-        const pos = p.position ?? findEmptyPosition(ctx.nodes, nodeIndex++);
+        let pos = p.position ?? findEmptyPosition(ctx.nodes, nodeIndex++);
+
+        // Resolve parent group: explicit `parent` field wins; otherwise
+        // detect by hit-testing the absolute position against group bboxes.
+        let parentId: string | undefined;
+        if (p.parent) {
+          parentId = resolveRef(p.parent, ctx) ?? undefined;
+          const parentNode = parentId
+            ? ctx.nodes.find((n) => n.id === parentId)
+            : null;
+          if (parentNode?.type !== 'group') parentId = undefined;
+        } else {
+          // Auto-detect: if pos lands inside a group's bbox, attach to it.
+          const hit = ctx.nodes.find((n) => {
+            if (n.type !== 'group') return false;
+            const w =
+              (n.style as { width?: number } | undefined)?.width ??
+              (n as { measured?: { width?: number } }).measured?.width ??
+              480;
+            const h =
+              (n.style as { height?: number } | undefined)?.height ??
+              (n as { measured?: { height?: number } }).measured?.height ??
+              200;
+            return (
+              pos.x >= n.position.x &&
+              pos.x <= n.position.x + w &&
+              pos.y >= n.position.y &&
+              pos.y <= n.position.y + h
+            );
+          });
+          if (hit) parentId = hit.id;
+        }
+
+        // Convert absolute position to parent-relative when attaching.
+        if (parentId) {
+          const parent = ctx.nodes.find((n) => n.id === parentId)!;
+          pos = {
+            x: pos.x - parent.position.x,
+            y: pos.y - parent.position.y,
+          };
+        }
+
         const node = buildNodeFromPatch(p, pos);
         if (!node) {
           ctx.warnings.push(`Unknown catalog type "${p.type}"`);
           break;
+        }
+        if (parentId) {
+          node.parentId = parentId;
+          node.extent = 'parent';
         }
         ctx.nodes.push(node);
         ctx.lastNodeId = node.id;
@@ -499,12 +549,17 @@ export function applyPatches(patches: AiPatch[]): {
 
 /**
  * Restores the canvas to a previously captured snapshot. Single setState
- * call so undo/redo treat it as one atomic action.
+ * call so undo/redo treat it as one atomic action. Deep-clones so the
+ * snapshot stays usable across multiple revert/re-apply cycles.
  */
 export function revertToSnapshot(snap: PatchSnapshot): void {
+  const clone = <T>(v: T): T =>
+    typeof structuredClone === 'function'
+      ? structuredClone(v)
+      : (JSON.parse(JSON.stringify(v)) as T);
   useCanvas.getState().applyAtomic({
-    nodes: snap.nodes,
-    edges: snap.edges,
+    nodes: clone(snap.nodes),
+    edges: clone(snap.edges),
   });
 }
 

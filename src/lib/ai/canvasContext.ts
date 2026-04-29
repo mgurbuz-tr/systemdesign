@@ -34,10 +34,27 @@ export function serializeGraph(
     lines.push('');
   }
 
+  // Render groups separately so the AI knows which logical containers exist
+  // (Edge tier, Data plane, VPC, …) and can attach new nodes via parent.
+  const groups = visible.filter((n) => n.type === 'group');
+  if (groups.length > 0) {
+    lines.push('## GROUPS');
+    for (const g of groups) {
+      const label =
+        (g.data as { label?: string } | undefined)?.label ?? g.id;
+      lines.push(`- **${g.id}** — "${label}"`);
+    }
+    lines.push('');
+  }
+
   lines.push('## NODES');
   for (const n of visible) {
     if (n.id === selectedId) continue; // already detailed above
-    lines.push(`- **${n.id}** (${n.data.type}): ${n.data.label}${describeOneLine(n)}`);
+    if (n.type === 'group') continue; // already listed above
+    const parentTag = n.parentId ? ` [in ${n.parentId}]` : '';
+    lines.push(
+      `- **${n.id}** (${n.data.type}): ${n.data.label}${parentTag}${describeOneLine(n)}`,
+    );
   }
 
   if (edges.length > 0) {
