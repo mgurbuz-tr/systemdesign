@@ -14,6 +14,8 @@ interface SettingsState {
   showMinimap: boolean;
   accent: string;
   lmStudioBaseUrl: string;
+  /** Optional Bearer token — newer LM Studio versions enable auth by default. */
+  lmStudioApiKey: string;
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
   aiOpen: boolean;
@@ -27,6 +29,7 @@ interface SettingsState {
   setShowMinimap: (v: boolean) => void;
   setAccent: (c: string) => void;
   setLmStudioBaseUrl: (u: string) => void;
+  setLmStudioApiKey: (k: string) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setInspectorOpen: (v: boolean) => void;
   setAiOpen: (v: boolean) => void;
@@ -43,6 +46,7 @@ export const useSettings = create<SettingsState>()(
       showMinimap: true,
       accent: '#1a1a1a',
       lmStudioBaseUrl: 'http://localhost:1234',
+      lmStudioApiKey: '',
       sidebarCollapsed: false,
       inspectorOpen: false,
       aiOpen: false,
@@ -76,6 +80,7 @@ export const useSettings = create<SettingsState>()(
         set({ accent });
       },
       setLmStudioBaseUrl: (lmStudioBaseUrl) => set({ lmStudioBaseUrl }),
+      setLmStudioApiKey: (lmStudioApiKey) => set({ lmStudioApiKey }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
       setAiOpen: (aiOpen) => set({ aiOpen }),

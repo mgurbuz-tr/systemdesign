@@ -11,12 +11,20 @@ export interface ChatMessage {
 
 export interface StreamOptions {
   baseUrl: string;
+  /** LM Studio API token. Empty string = no auth (older LM Studio versions). */
+  apiKey?: string;
   messages: ChatMessage[];
   model?: string;
   temperature?: number;
   signal?: AbortSignal;
   onToken: (delta: string) => void;
   onError?: (err: unknown) => void;
+}
+
+function authHeaders(apiKey?: string): Record<string, string> {
+  return apiKey && apiKey.trim()
+    ? { Authorization: `Bearer ${apiKey.trim()}` }
+    : {};
 }
 
 export async function streamChat(opts: StreamOptions): Promise<string> {
@@ -32,7 +40,7 @@ export async function streamChat(opts: StreamOptions): Promise<string> {
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(opts.apiKey) },
       body: JSON.stringify(body),
       signal: opts.signal,
     });
@@ -85,14 +93,27 @@ export async function streamChat(opts: StreamOptions): Promise<string> {
   return full;
 }
 
-export async function checkConnection(baseUrl: string): Promise<{
+export async function checkConnection(
+  baseUrl: string,
+  apiKey?: string,
+): Promise<{
   ok: boolean;
   detail: string;
+  /** True when the server responded with a clear auth-required signal. */
+  needsAuth?: boolean;
 }> {
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/models`, {
       method: 'GET',
+      headers: { ...authHeaders(apiKey) },
     });
+    if (res.status === 401 || res.status === 403) {
+      return {
+        ok: false,
+        detail: 'API key required',
+        needsAuth: true,
+      };
+    }
     if (!res.ok) return { ok: false, detail: `${res.status} ${res.statusText}` };
     const json = await res.json();
     const count = Array.isArray(json?.data) ? json.data.length : 0;

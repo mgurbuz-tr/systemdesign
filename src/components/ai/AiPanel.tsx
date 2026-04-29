@@ -90,7 +90,14 @@ const WELCOME_MSG: UiMessage = {
 };
 
 export function AiPanel() {
-  const { aiOpen, setAiOpen, lmStudioBaseUrl, setLmStudioBaseUrl } = useSettings();
+  const {
+    aiOpen,
+    setAiOpen,
+    lmStudioBaseUrl,
+    setLmStudioBaseUrl,
+    lmStudioApiKey,
+    setLmStudioApiKey,
+  } = useSettings();
   const projectId = useProject((s) => s.current?.id);
 
   const [messages, setMessages] = useState<UiMessage[]>([WELCOME_MSG]);
@@ -135,7 +142,7 @@ export function AiPanel() {
     if (!aiOpen) return;
     runConnectionCheck();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiOpen, lmStudioBaseUrl]);
+  }, [aiOpen, lmStudioBaseUrl, lmStudioApiKey]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -157,9 +164,10 @@ export function AiPanel() {
   }, []);
 
   const runConnectionCheck = async () => {
-    const r = await checkConnection(lmStudioBaseUrl);
+    const r = await checkConnection(lmStudioBaseUrl, lmStudioApiKey);
     setConn(r.ok ? 'ok' : 'fail');
     setConnDetail(r.detail);
+    if (r.needsAuth) setShowSettings(true);
   };
 
   const finalizeAssistantMessage = (id: string) => {
@@ -237,6 +245,7 @@ export function AiPanel() {
     try {
       await streamChat({
         baseUrl: lmStudioBaseUrl,
+        apiKey: lmStudioApiKey,
         messages: history,
         signal: abortRef.current.signal,
         onToken: (delta) => {
@@ -467,8 +476,20 @@ export function AiPanel() {
                   </button>
                 </div>
               </label>
+              <label className="mt-2 block">
+                <span className="mb-1 block text-[9.5px] font-semibold uppercase tracking-[0.06em] text-text-dim">
+                  API key (Bearer · opsiyonel)
+                </span>
+                <input
+                  type="password"
+                  value={lmStudioApiKey}
+                  onChange={(e) => setLmStudioApiKey(e.target.value)}
+                  placeholder="lms-… (LM Studio'da auth kapalıysa boş bırak)"
+                  className="h-7 w-full rounded-md border border-border bg-input px-2 font-mono text-[11px] text-text focus:border-accent focus:outline-none"
+                />
+              </label>
               <p className="mt-1.5 text-[10px] text-text-dim">
-                LM Studio uygulamasında Local Server'ı başlat. Default: 1234.
+                LM Studio Local Server'ı başlat. Yeni sürümlerde Settings → Developer → "Require API key" varsayılan açık.
                 {connDetail && conn === 'ok' && (
                   <span className="ml-1 text-[#7c9c5e]">✓ {connDetail}</span>
                 )}
