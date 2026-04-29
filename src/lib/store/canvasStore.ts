@@ -46,6 +46,13 @@ interface CanvasState {
 
   updateEdge: (id: string, patch: Partial<EdgeData>) => void;
   removeEdge: (id: string) => void;
+
+  /**
+   * Atomic state replacement used by AI patches and revert. Both nodes and
+   * edges are set in a single setState so zundo's handleSet coalesces them
+   * into ONE history entry — Cmd+Z reverts the whole AI change at once.
+   */
+  applyAtomic: (next: { nodes: SDNode[]; edges: SDEdge[] }) => void;
 }
 
 const ASYNC_PROTOCOLS: Protocol[] = ['kafka', 'amqp', 'mqtt', 'websocket'];
@@ -221,6 +228,8 @@ export const useCanvas = create<CanvasState>()(
       edges: get().edges.filter((e) => e.id !== id),
       selectedEdgeId: get().selectedEdgeId === id ? null : get().selectedEdgeId,
     }),
+
+  applyAtomic: ({ nodes, edges }) => set({ nodes, edges }),
     }),
     {
       // Only nodes/edges flow into undo history — selection isn't worth tracking.

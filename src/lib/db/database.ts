@@ -7,14 +7,31 @@ interface ProjectRow extends ProjectMeta {
   edges: Edge<EdgeData>[];
 }
 
+/**
+ * AI conversation persisted per project. `messages` is opaque on purpose —
+ * the AiPanel owns the wire format, DB just stores it.
+ */
+export interface ConversationRow {
+  /** projectId == row id; one thread per project. */
+  id: string;
+  messages: unknown[];
+  updatedAt: number;
+}
+
 class SDDatabase extends Dexie {
   projects!: EntityTable<ProjectRow, 'id'>;
+  conversations!: EntityTable<ConversationRow, 'id'>;
 
   constructor() {
     super('system-design');
     this.version(1).stores({
       projects: 'id, name, updatedAt',
     });
+    this.version(2)
+      .stores({
+        projects: 'id, name, updatedAt',
+        conversations: 'id, updatedAt',
+      });
   }
 }
 
@@ -48,6 +65,22 @@ export async function saveSnapshot(
 
 export async function deleteProject(id: string): Promise<void> {
   await db.projects.delete(id);
+}
+
+export async function loadConversation(id: string): Promise<unknown[] | null> {
+  const row = await db.conversations.get(id);
+  return row ? row.messages : null;
+}
+
+export async function saveConversation(
+  id: string,
+  messages: unknown[],
+): Promise<void> {
+  await db.conversations.put({ id, messages, updatedAt: Date.now() });
+}
+
+export async function clearConversation(id: string): Promise<void> {
+  await db.conversations.delete(id);
 }
 
 export async function duplicateProject(id: string): Promise<ProjectMeta | null> {

@@ -4,10 +4,38 @@ import { toast } from 'sonner';
 import { Icon } from '@/components/ui/Icon';
 import { useSettings } from '@/lib/store/settingsStore';
 import { useCanvas } from '@/lib/store/canvasStore';
+import { useProject } from '@/lib/store/projectStore';
 import { checkConnection, streamChat, type ChatMessage } from '@/lib/ai/client';
 import { buildSystemMessage } from '@/lib/ai/prompts';
 import { serializeGraph } from '@/lib/ai/canvasContext';
+import {
+  parsePatches,
+  stripPatchFences,
+  applyPatches,
+  revertToSnapshot,
+  describePatch,
+  type AiPatch,
+  type PatchSnapshot,
+} from '@/lib/ai/patches';
+import {
+  loadConversation,
+  saveConversation,
+  clearConversation,
+} from '@/lib/db/database';
 import { cn, uid } from '@/lib/utils';
+
+type PatchProposalState = 'proposed' | 'applied' | 'reverted' | 'discarded';
+
+interface PatchProposal {
+  id: string;
+  patches: AiPatch[];
+  errors: string[];
+  state: PatchProposalState;
+  /** Captured at apply-time, used to revert later. */
+  snapshot?: PatchSnapshot;
+  appliedAt?: number;
+  warnings?: string[];
+}
 
 interface UiMessage {
   id: string;
@@ -15,42 +43,50 @@ interface UiMessage {
   content: string;
   streaming?: boolean;
   ts: number;
+  proposals?: PatchProposal[];
 }
 
 const QUICK_ACTIONS: { label: string; prompt: string }[] = [
   {
     label: 'Find bottlenecks',
-    prompt: 'Bu mimaride hangi node bottleneck olur ve neden? Spesifik trafik path’leri üzerinden açıkla.',
+    prompt:
+      'Bu mimaride hangi node bottleneck olur ve neden? Spesifik trafik path’leri üzerinden açıkla.',
   },
   {
     label: 'Suggest cache',
-    prompt: 'Bu sisteme nereye cache koymalıyım? Read pattern’leri tahmin ederek öner.',
+    prompt:
+      'Bu sisteme nereye cache koymalıyım? Read pattern’leri tahmin ederek öner ve uygulanabilir patch’ler ver.',
   },
   {
     label: 'Schema review',
-    prompt: 'DB schema’larımı değerlendir: eksik index, FK, denormalize edilmesi gerekenler var mı?',
+    prompt:
+      'DB schema’larımı değerlendir: eksik index, FK, denormalize edilmesi gerekenler var mı?',
   },
   {
     label: 'Security gaps',
-    prompt: 'Bu sistemde auth, secrets, edge security açısından hangi açıklar var?',
+    prompt:
+      'Bu sistemde auth, secrets, edge security açısından hangi açıklar var?',
   },
   {
     label: 'Estimate cost',
-    prompt: 'Hızlı bir Fermi tahmini yap: orta-trafik (1k RPS) için aylık altyapı maliyeti yaklaşık ne?',
+    prompt:
+      'Hızlı bir Fermi tahmini yap: orta-trafik (1k RPS) için aylık altyapı maliyeti yaklaşık ne?',
   },
 ];
 
+const WELCOME_MSG: UiMessage = {
+  id: 'welcome',
+  role: 'assistant',
+  content:
+    "Selam — sistem mimarın. Canvas'ı görüyorum. Değişiklik istersen patch öneririm, önce sen onaylarsın.",
+  ts: Date.now(),
+};
+
 export function AiPanel() {
   const { aiOpen, setAiOpen, lmStudioBaseUrl, setLmStudioBaseUrl } = useSettings();
-  const [messages, setMessages] = useState<UiMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content:
-        "Selam — sistem mimarın. Canvas'ı görüyorum. Şu an ne üzerine çalışıyorsun? Sol-alttaki hızlı aksiyonlardan da başlayabilirsin.",
-      ts: Date.now(),
-    },
-  ]);
+  const projectId = useProject((s) => s.current?.id);
+
+  const [messages, setMessages] = useState<UiMessage[]>([WELCOME_MSG]);
   const [draft, setDraft] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,6 +94,35 @@ export function AiPanel() {
   const [connDetail, setConnDetail] = useState<string>('');
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const persistTimer = useRef<number | null>(null);
+  const loadedFor = useRef<string | null>(null);
+
+  // Load thread when project changes / panel opens.
+  useEffect(() => {
+    if (!projectId) return;
+    if (loadedFor.current === projectId) return;
+    loadedFor.current = projectId;
+    loadConversation(projectId).then((stored) => {
+      if (stored && Array.isArray(stored) && stored.length > 0) {
+        setMessages(stored as UiMessage[]);
+      } else {
+        setMessages([WELCOME_MSG]);
+      }
+    });
+  }, [projectId]);
+
+  // Debounced persistence.
+  useEffect(() => {
+    if (!projectId) return;
+    if (persistTimer.current) window.clearTimeout(persistTimer.current);
+    persistTimer.current = window.setTimeout(() => {
+      // Don't persist while a stream is in-flight to keep the on-disk content
+      // consistent — saved snapshot will land when the stream ends.
+      if (busy) return;
+      const toSave = messages.filter((m) => m.id !== 'welcome' || messages.length > 1);
+      saveConversation(projectId, toSave).catch(console.error);
+    }, 350);
+  }, [messages, busy, projectId]);
 
   useEffect(() => {
     if (!aiOpen) return;
@@ -90,6 +155,24 @@ export function AiPanel() {
     setConnDetail(r.detail);
   };
 
+  const finalizeAssistantMessage = (id: string) => {
+    setMessages((all) =>
+      all.map((m) => {
+        if (m.id !== id) return m;
+        const blocks = parsePatches(m.content);
+        const proposals: PatchProposal[] = blocks
+          .filter((b) => b.patches.length > 0 || b.errors.length > 0)
+          .map((b) => ({
+            id: uid('prop'),
+            patches: b.patches,
+            errors: b.errors,
+            state: 'proposed' as const,
+          }));
+        return { ...m, streaming: false, proposals };
+      }),
+    );
+  };
+
   const send = async (override?: string) => {
     const text = (override ?? draft).trim();
     if (!text || busy) return;
@@ -119,10 +202,14 @@ export function AiPanel() {
       { role: 'system', content: buildSystemMessage(graphMd) },
       ...messages
         .filter((m) => m.id !== 'welcome')
-        .map((m): ChatMessage => ({
-          role: m.role,
-          content: m.content,
-        })),
+        .map(
+          (m): ChatMessage => ({
+            role: m.role,
+            // Send the model the raw content (with patches) so it sees its own
+            // history; UI strips fences for human display.
+            content: m.content,
+          }),
+        ),
       { role: 'user', content: text },
     ];
 
@@ -164,9 +251,7 @@ export function AiPanel() {
         );
       }
     } finally {
-      setMessages((all) =>
-        all.map((m) => (m.id === assistantId ? { ...m, streaming: false } : m)),
-      );
+      finalizeAssistantMessage(assistantId);
       setBusy(false);
       abortRef.current = null;
     }
@@ -174,6 +259,91 @@ export function AiPanel() {
 
   const cancel = () => {
     abortRef.current?.abort();
+  };
+
+  const onApply = (msgId: string, propId: string) => {
+    setMessages((all) =>
+      all.map((m) => {
+        if (m.id !== msgId) return m;
+        const proposals = (m.proposals ?? []).map((p) => {
+          if (p.id !== propId) return p;
+          if (p.state !== 'proposed') return p;
+          const result = applyPatches(p.patches);
+          if (result.warnings.length > 0) {
+            toast.warning(`${result.warnings.length} uyarı (konsola yazıldı)`);
+            console.warn('Patch warnings:', result.warnings);
+          }
+          toast.success(`${result.applied} değişiklik uygulandı`);
+          return {
+            ...p,
+            state: 'applied' as const,
+            snapshot: result.snapshot,
+            appliedAt: Date.now(),
+            warnings: result.warnings,
+          };
+        });
+        return { ...m, proposals };
+      }),
+    );
+  };
+
+  const onDiscard = (msgId: string, propId: string) => {
+    setMessages((all) =>
+      all.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              proposals: (m.proposals ?? []).map((p) =>
+                p.id === propId && p.state === 'proposed'
+                  ? { ...p, state: 'discarded' as const }
+                  : p,
+              ),
+            }
+          : m,
+      ),
+    );
+  };
+
+  const onRevert = (msgId: string, propId: string) => {
+    setMessages((all) =>
+      all.map((m) => {
+        if (m.id !== msgId) return m;
+        const proposals = (m.proposals ?? []).map((p) => {
+          if (p.id !== propId || p.state !== 'applied' || !p.snapshot) return p;
+          revertToSnapshot(p.snapshot);
+          toast.success('Değişiklik geri alındı');
+          return { ...p, state: 'reverted' as const };
+        });
+        return { ...m, proposals };
+      }),
+    );
+  };
+
+  const onReapply = (msgId: string, propId: string) => {
+    setMessages((all) =>
+      all.map((m) => {
+        if (m.id !== msgId) return m;
+        const proposals = (m.proposals ?? []).map((p) => {
+          if (p.id !== propId || p.state !== 'reverted') return p;
+          const result = applyPatches(p.patches);
+          toast.success(`${result.applied} değişiklik tekrar uygulandı`);
+          return {
+            ...p,
+            state: 'applied' as const,
+            snapshot: result.snapshot,
+            appliedAt: Date.now(),
+            warnings: result.warnings,
+          };
+        });
+        return { ...m, proposals };
+      }),
+    );
+  };
+
+  const onClearThread = () => {
+    if (!projectId) return;
+    setMessages([WELCOME_MSG]);
+    clearConversation(projectId).catch(console.error);
   };
 
   if (!aiOpen) {
@@ -234,6 +404,14 @@ export function AiPanel() {
             </button>
           </div>
           <button
+            onClick={onClearThread}
+            title="Clear thread"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-text-dim hover:bg-hover hover:text-text"
+            aria-label="Clear thread"
+          >
+            <Icon name="trash" size={12} />
+          </button>
+          <button
             onClick={() => setAiOpen(false)}
             className="flex h-6 w-6 items-center justify-center rounded-md text-text-dim hover:bg-hover hover:text-text"
             aria-label="Close AI panel"
@@ -285,7 +463,14 @@ export function AiPanel() {
 
         <div ref={scrollRef} className="flex-1 space-y-3 overflow-auto px-3.5 py-3">
           {messages.map((m) => (
-            <ChatBubble key={m.id} message={m} />
+            <ChatBubble
+              key={m.id}
+              message={m}
+              onApply={(propId) => onApply(m.id, propId)}
+              onDiscard={(propId) => onDiscard(m.id, propId)}
+              onRevert={(propId) => onRevert(m.id, propId)}
+              onReapply={(propId) => onReapply(m.id, propId)}
+            />
           ))}
         </div>
 
@@ -341,14 +526,30 @@ export function AiPanel() {
   );
 }
 
-function ChatBubble({ message }: { message: UiMessage }) {
+interface ChatBubbleProps {
+  message: UiMessage;
+  onApply: (propId: string) => void;
+  onDiscard: (propId: string) => void;
+  onRevert: (propId: string) => void;
+  onReapply: (propId: string) => void;
+}
+
+function ChatBubble({
+  message,
+  onApply,
+  onDiscard,
+  onRevert,
+  onReapply,
+}: ChatBubbleProps) {
   const isUser = message.role === 'user';
+  const visibleText = isUser ? message.content : stripPatchFences(message.content);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.16 }}
-      className={cn('flex', isUser ? 'justify-end' : 'justify-start')}
+      className={cn('flex flex-col gap-1.5', isUser ? 'items-end' : 'items-start')}
     >
       <div
         className={cn(
@@ -359,8 +560,144 @@ function ChatBubble({ message }: { message: UiMessage }) {
         )}
         style={isUser ? { background: 'var(--accent)' } : undefined}
       >
-        {message.content || (message.streaming ? <Cursor /> : null)}
-        {message.streaming && message.content && <Cursor />}
+        {visibleText || (message.streaming ? <Cursor /> : null)}
+        {message.streaming && visibleText && <Cursor />}
+      </div>
+
+      {!isUser &&
+        (message.proposals ?? []).map((p) => (
+          <PatchProposalCard
+            key={p.id}
+            proposal={p}
+            onApply={() => onApply(p.id)}
+            onDiscard={() => onDiscard(p.id)}
+            onRevert={() => onRevert(p.id)}
+            onReapply={() => onReapply(p.id)}
+          />
+        ))}
+    </motion.div>
+  );
+}
+
+function PatchProposalCard({
+  proposal,
+  onApply,
+  onDiscard,
+  onRevert,
+  onReapply,
+}: {
+  proposal: PatchProposal;
+  onApply: () => void;
+  onDiscard: () => void;
+  onRevert: () => void;
+  onReapply: () => void;
+}) {
+  const { state, patches, errors, warnings } = proposal;
+  const count = patches.length;
+  const hasErrors = errors.length > 0;
+
+  const stateLabel =
+    state === 'proposed'
+      ? `${count} değişiklik öneriliyor`
+      : state === 'applied'
+        ? `Uygulandı · ${count} değişiklik`
+        : state === 'reverted'
+          ? `Geri alındı · ${count} değişiklik`
+          : 'Reddedildi';
+
+  const stateColor =
+    state === 'applied'
+      ? '#7c9c5e'
+      : state === 'reverted'
+        ? '#c96442'
+        : state === 'discarded'
+          ? '#8a8a85'
+          : 'var(--accent)';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.16 }}
+      className="w-[88%] rounded-lg border border-border bg-panel"
+    >
+      <div className="flex items-center gap-1.5 border-b border-border px-2.5 py-1.5">
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: stateColor }}
+        />
+        <span className="text-[10.5px] font-semibold text-text">{stateLabel}</span>
+        {hasErrors && (
+          <span className="ml-auto text-[9.5px] text-[#c96442]">
+            {errors.length} parse hatası
+          </span>
+        )}
+      </div>
+
+      {patches.length > 0 && (
+        <ul className="space-y-0.5 border-b border-border px-2.5 py-2 font-mono text-[10.5px] text-text-dim">
+          {patches.map((p, i) => (
+            <li key={i} className="truncate">
+              {describePatch(p)}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {hasErrors && (
+        <ul className="space-y-0.5 border-b border-border bg-[var(--input-bg)] px-2.5 py-2 font-mono text-[10px] text-[#c96442]">
+          {errors.map((e, i) => (
+            <li key={i} className="truncate">
+              {e}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {warnings && warnings.length > 0 && state !== 'proposed' && (
+        <ul className="space-y-0.5 border-b border-border bg-[var(--input-bg)] px-2.5 py-2 font-mono text-[10px] text-[#a8773d]">
+          {warnings.map((w, i) => (
+            <li key={i} className="truncate">
+              ⚠ {w}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex flex-wrap gap-1 px-2.5 py-1.5">
+        {state === 'proposed' && patches.length > 0 && (
+          <>
+            <button
+              onClick={onApply}
+              className="rounded-md px-2.5 py-1 text-[10.5px] font-medium text-white"
+              style={{ background: 'var(--accent)' }}
+            >
+              Apply
+            </button>
+            <button
+              onClick={onDiscard}
+              className="rounded-md border border-border bg-input px-2.5 py-1 text-[10.5px] text-text-dim hover:bg-hover hover:text-text"
+            >
+              Discard
+            </button>
+          </>
+        )}
+        {state === 'applied' && (
+          <button
+            onClick={onRevert}
+            className="rounded-md border border-border bg-input px-2.5 py-1 text-[10.5px] text-text hover:bg-hover"
+          >
+            ↺ Geri al
+          </button>
+        )}
+        {state === 'reverted' && (
+          <button
+            onClick={onReapply}
+            className="rounded-md border border-border bg-input px-2.5 py-1 text-[10.5px] text-text hover:bg-hover"
+          >
+            ⟳ Tekrar uygula
+          </button>
+        )}
       </div>
     </motion.div>
   );
