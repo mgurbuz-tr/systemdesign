@@ -225,6 +225,16 @@ export function AiPanel() {
     const { nodes, edges, selectedNodeId } = useCanvas.getState();
     const graphMd = serializeGraph(nodes, edges, { selectedNodeId });
 
+    // Models routinely "forget" to emit sd-patch blocks even when the user
+    // clearly asked for changes. When trigger verbs are present, append a
+    // hard reminder right before the model generates its response.
+    const wantsChange = /\b(ekle|kaldır|sil|değiştir|düzenle|uygula|bağla|ayır|patch|add|remove|delete|change|edit|apply|connect|wire|şuna göre|bunlara göre)\b/i.test(
+      text,
+    );
+    const finalUserText = wantsChange
+      ? `${text}\n\n_(NOT: Bu mesaj değişiklik istiyor — açıklamanın sonunda \`\`\`sd-patch [...] bloğu ZORUNLU. Sadece liste vermek YETERLİ DEĞİL.)_`
+      : text;
+
     const history: ChatMessage[] = [
       { role: 'system', content: buildSystemMessage(graphMd) },
       ...messages
@@ -237,7 +247,7 @@ export function AiPanel() {
             content: m.content,
           }),
         ),
-      { role: 'user', content: text },
+      { role: 'user', content: finalUserText },
     ];
 
     abortRef.current = new AbortController();

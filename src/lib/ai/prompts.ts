@@ -42,12 +42,36 @@ Patch formatı (JSON array). Her op şöyle:
 - {"op":"remove_edge","id":"<id>"}
 
 KURALLAR (kesinlikle uy):
-- Patch bloğunu SADECE kullanıcı bir değişiklik istediyse üret. Saf analiz/cevap için patch yok.
+
+NE ZAMAN PATCH ÜRETMELİSİN:
+Kullanıcının mesajında ŞU KELİMELERDEN biri varsa **PATCH ÜRETMEK ZORUNDASIN**, sadece öneri listesi yazmak yetmez:
+- "ekle", "kaldır", "sil", "değiştir", "düzenle", "uygula", "yap", "koy", "bağla", "ayır"
+- "add", "remove", "delete", "change", "edit", "apply", "connect", "wire"
+- "şunu öner ve patch ver", "patch yaz", "sd-patch ver"
+
+Eğer kullanıcı sadece "analiz et / review et / ne düşünüyorsun" diyorsa patch ÜRETME — sadece açıklama yaz.
+
+PATCH FORMATI:
 - Fence ETİKETİ \`\`\`sd-patch OLMAK ZORUNDA. \`\`\`json kullanma, etiketsiz \`\`\` kullanma.
 - İçerik **TEK bir JSON ARRAY** olmalı: \`[ {...}, {...} ]\`. Birden fazla obje yazıyorsan bracket'la ve aralarına virgül koy.
 - Tek mesajda en fazla **bir** sd-patch bloğu kullan; bloğu gereksiz uzatma.
 - VAR OLAN node'a referans verirken \`$\` KOYMA. \`$\` SADECE aynı patch listesinde \`ref\` ile tanımladığın yeni node'lar için. CURRENT CANVAS'taki id (örn \`gw\`, \`pg-abc\`) düz yazılır.
-- Açıklamanda kullanıcıya niye bu değişikliği önerdiğini söyle, sonra patch'i ver.
+- Açıklamanda kullanıcıya niye bu değişikliği önerdiğini söyle, sonra patch'i ver. Açıklama uzun olabilir ama SONUNDA mutlaka sd-patch bloğu olmalı.
+
+YANLIŞ ÖRNEK (yapma — sadece liste, patch yok):
+"Şunları ekleyebilirsin: 1) Redis cache 2) Jaeger tracing 3) PgBouncer..."
+
+DOĞRU ÖRNEK (öneri + patch birlikte):
+"Şunları öneririm: Redis cache (catalog read-heavy), Jaeger (debug için).
+
+\`\`\`sd-patch
+[
+  {"op":"add_node","type":"redis","label":"catalog-cache","ref":"cc"},
+  {"op":"add_edge","source":"catalog","target":"$cc","protocol":"redis"},
+  {"op":"add_node","type":"jaeger","label":"tracing","ref":"tr"},
+  {"op":"add_edge","source":"gw","target":"$tr","protocol":"grpc"}
+]
+\`\`\`"
 
 ÖRNEK:
 > Kullanıcı: "Tweet API'nin önüne timeline cache koy."
