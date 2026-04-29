@@ -4,6 +4,7 @@ import type { Node } from '@xyflow/react';
 import { Icon } from '@/components/ui/Icon';
 import { useCanvas } from '@/lib/store/canvasStore';
 import { useSettings } from '@/lib/store/settingsStore';
+import { askAiAboutNode } from '@/lib/ai/askAi';
 import { findCatalogItem } from '@/lib/catalog';
 import { DbSchemaEditor } from './DbSchemaEditor';
 import { ApiEndpointEditor } from './ApiEndpointEditor';
@@ -21,7 +22,7 @@ import type {
 } from '@/types';
 import { cn } from '@/lib/utils';
 
-type TabKey = 'basic' | 'schema' | 'api' | 'consumer' | 'mockup';
+type TabKey = 'basic' | 'schema' | 'api' | 'consumer' | 'mockup' | 'notes';
 
 export function Inspector() {
   const { inspectorOpen, setInspectorOpen } = useSettings();
@@ -62,6 +63,8 @@ export function Inspector() {
               onApi={(api) => updateNode(selectedNode.id, { api })}
               onConsumer={(consumer) => updateNode(selectedNode.id, { consumer })}
               onMockup={(mockup) => updateNode(selectedNode.id, { mockup })}
+              onNotes={(notes) => updateNode(selectedNode.id, { notes })}
+              onAskAi={() => askAiAboutNode(selectedNode.data.label, selectedNode.data.type)}
               onLock={() => useCanvas.getState().toggleNodeLock(selectedNode.id)}
               onHide={() => useCanvas.getState().toggleNodeHidden(selectedNode.id)}
               onClose={() => setInspectorOpen(false)}
@@ -91,6 +94,8 @@ function NodeInspector({
   onApi,
   onConsumer,
   onMockup,
+  onNotes,
+  onAskAi,
   onLock,
   onHide,
   onClose,
@@ -104,6 +109,8 @@ function NodeInspector({
   onApi: (a: ApiSpec) => void;
   onConsumer: (c: ConsumerSpec) => void;
   onMockup: (m: MockupSpec) => void;
+  onNotes: (n: string) => void;
+  onAskAi: () => void;
   onLock: () => void;
   onHide: () => void;
   onClose: () => void;
@@ -116,6 +123,7 @@ function NodeInspector({
     if (catalog?.hasMockupEditor) arr.push({ key: 'mockup', label: 'Screens' });
     if (catalog?.hasApiEditor) arr.push({ key: 'api', label: 'API' });
     if (catalog?.hasConsumerEditor) arr.push({ key: 'consumer', label: 'Consumer' });
+    arr.push({ key: 'notes', label: 'Notes' });
     return arr;
   }, [catalog]);
 
@@ -165,6 +173,7 @@ function NodeInspector({
         onLock={onLock}
         hidden={!!node.data.hidden}
         onHide={onHide}
+        onAskAi={onAskAi}
       />
 
       <div className="-mb-px flex gap-0.5 border-b border-border px-3.5">
@@ -229,8 +238,34 @@ function NodeInspector({
             onChange={onMockup}
           />
         )}
+        {active === 'notes' && (
+          <NotesEditor notes={node.data.notes ?? ''} onChange={onNotes} />
+        )}
       </div>
     </>
+  );
+}
+
+function NotesEditor({
+  notes,
+  onChange,
+}: {
+  notes: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-dim">
+        Notes (markdown · AI bağlamına dahil edilir)
+      </label>
+      <textarea
+        value={notes}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={`Bu node hakkında notlar:\n- expected RPS: ~2k\n- read-heavy, write nadiren\n- TODO: TLS terminasyonu nerede?`}
+        rows={14}
+        className="w-full resize-y rounded-md border border-border bg-input px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
+      />
+    </div>
   );
 }
 
@@ -273,6 +308,7 @@ function Header({
   onLock,
   hidden,
   onHide,
+  onAskAi,
 }: {
   tone: string;
   title: string;
@@ -284,6 +320,7 @@ function Header({
   onLock?: () => void;
   hidden?: boolean;
   onHide?: () => void;
+  onAskAi?: () => void;
 }) {
   return (
     <div className="flex items-center gap-2 border-b border-border px-3.5 py-3">
@@ -299,13 +336,23 @@ function Header({
       <span className="truncate text-[12.5px] font-semibold text-text">
         {title}
       </span>
+      {onAskAi && (
+        <button
+          onClick={onAskAi}
+          title="Ask AI about this node"
+          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-text-dim hover:bg-[var(--accent-soft)] hover:text-accent"
+        >
+          <Icon name="sparkles" size={12} />
+        </button>
+      )}
       {onLock && (
         <button
           onClick={onLock}
           title={locked ? 'Unlock (⌘L)' : 'Lock (⌘L)'}
           aria-pressed={locked}
           className={cn(
-            'ml-auto flex h-6 w-6 items-center justify-center rounded-md',
+            'flex h-6 w-6 items-center justify-center rounded-md',
+            !onAskAi && 'ml-auto',
             locked
               ? 'bg-[var(--accent-soft)] text-accent'
               : 'text-text-dim hover:bg-hover hover:text-text',

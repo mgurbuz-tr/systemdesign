@@ -150,6 +150,8 @@ export interface NodeData extends Record<string, unknown> {
   mockup?: MockupSpec;
   api?: ApiSpec;
   consumer?: ConsumerSpec;
+  /** Free-text markdown notes shown in Inspector + included in AI context. */
+  notes?: string;
 }
 
 /** Custom data carried by every edge. */

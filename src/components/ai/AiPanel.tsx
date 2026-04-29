@@ -22,6 +22,7 @@ import {
   saveConversation,
   clearConversation,
 } from '@/lib/db/database';
+import { scanIssues, formatIssuesMarkdown } from '@/lib/ai/issues';
 import { cn, uid } from '@/lib/utils';
 
 type PatchProposalState = 'proposed' | 'applied' | 'reverted' | 'discarded';
@@ -46,7 +47,13 @@ interface UiMessage {
   proposals?: PatchProposal[];
 }
 
+const ISSUE_SCAN_KEY = '__issue_scan__';
+
 const QUICK_ACTIONS: { label: string; prompt: string }[] = [
+  {
+    label: 'Issue scan',
+    prompt: ISSUE_SCAN_KEY,
+  },
   {
     label: 'Find bottlenecks',
     prompt:
@@ -174,9 +181,21 @@ export function AiPanel() {
   };
 
   const send = async (override?: string) => {
-    const text = (override ?? draft).trim();
+    let text = (override ?? draft).trim();
     if (!text || busy) return;
     setDraft('');
+
+    // Issue Scan: run local heuristic first, fold findings into the prompt.
+    if (text === ISSUE_SCAN_KEY) {
+      const { nodes, edges } = useCanvas.getState();
+      const found = scanIssues(nodes, edges);
+      const md = formatIssuesMarkdown(found);
+      text =
+        `Issue scan istiyorum. Önce yerel heuristic şunları yakaladı:\n\n${md}\n\n` +
+        `Bunları doğrula, eklemen gereken başka mimari/scalability/security uyarıları varsa ekle. ` +
+        `Sonunda öncelik sırasına göre 3 maddelik aksiyon listesi ver. ` +
+        `Somut bir değişiklik öneriyorsan sd-patch bloğu ekle.`;
+    }
 
     const userMsg: UiMessage = {
       id: uid('m'),
@@ -195,8 +214,8 @@ export function AiPanel() {
     setMessages((m) => [...m, userMsg, assistantMsg]);
     setBusy(true);
 
-    const { nodes, edges } = useCanvas.getState();
-    const graphMd = serializeGraph(nodes, edges);
+    const { nodes, edges, selectedNodeId } = useCanvas.getState();
+    const graphMd = serializeGraph(nodes, edges, { selectedNodeId });
 
     const history: ChatMessage[] = [
       { role: 'system', content: buildSystemMessage(graphMd) },
