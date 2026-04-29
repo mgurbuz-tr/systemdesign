@@ -235,18 +235,24 @@ export function AiPanel() {
       ? `${text}\n\n_(NOT: Bu mesaj değişiklik istiyor — açıklamanın sonunda \`\`\`sd-patch [...] bloğu ZORUNLU. Sadece liste vermek YETERLİ DEĞİL.)_`
       : text;
 
+    // Aggressive history trim — local models often have tight context
+    // (LM Studio defaults to 4K). Keep only the most recent turns and strip
+    // <think>...</think> blocks (reasoning model artifacts that waste budget).
+    const RECENT_TURNS = 4;
+    const recentMessages = messages
+      .filter((m) => m.id !== 'welcome')
+      .slice(-RECENT_TURNS * 2);
+    const stripThink = (s: string) =>
+      s.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
     const history: ChatMessage[] = [
       { role: 'system', content: buildSystemMessage(graphMd) },
-      ...messages
-        .filter((m) => m.id !== 'welcome')
-        .map(
-          (m): ChatMessage => ({
-            role: m.role,
-            // Send the model the raw content (with patches) so it sees its own
-            // history; UI strips fences for human display.
-            content: m.content,
-          }),
-        ),
+      ...recentMessages.map(
+        (m): ChatMessage => ({
+          role: m.role,
+          content: stripThink(m.content),
+        }),
+      ),
       { role: 'user', content: finalUserText },
     ];
 
@@ -592,7 +598,19 @@ function ChatBubble({
   onReapply,
 }: ChatBubbleProps) {
   const isUser = message.role === 'user';
-  const visibleText = isUser ? message.content : stripPatchFences(message.content);
+  // Hide reasoning model <think>...</think> blocks from chat — they're
+  // internal scratch, not user-facing. Open <think> with no close = still
+  // streaming; show "thinking…" placeholder until it closes.
+  const stripThinking = (s: string): string => {
+    const closed = s.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    return closed.replace(/<think>[\s\S]*$/, '').trim();
+  };
+  const isThinking =
+    !isUser && /<think>(?![\s\S]*<\/think>)/.test(message.content);
+  const cleaned = isUser
+    ? message.content
+    : stripPatchFences(stripThinking(message.content));
+  const visibleText = cleaned || (isThinking ? '_thinking…_' : '');
 
   return (
     <motion.div
