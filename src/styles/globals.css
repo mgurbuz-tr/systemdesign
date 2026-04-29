@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: var(--canvas-bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  /* Theme transition — only when toggling */
+  html.theme-transition,
+  html.theme-transition * {
+    transition:
+      background-color 200ms ease-out,
+      border-color 200ms ease-out,
+      color 200ms ease-out !important;
+  }
+
+  /* Scrollbars (referans patterni) */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Reduced motion: disable all animations */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* tabular numbers for metrics */
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Edge flow animation — selected edges only */
+@keyframes sd-edge-flow {
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+@keyframes sd-cursor-blink {
+  0%,
+  50% {
+    opacity: 0.6;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* React Flow theme overrides */
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Three-layer stacking:
+ *   groups   z=0   (containers, set per-node in Canvas.tsx)
+ *   edges    z=1   (lines + protocol pills above group bg, below nodes)
+ *   nodes    z=10  (sd / comment, sit on top so they're never hidden)
+ */
+.react-flow__edges {
+  z-index: 1 !important;
+}
+
+.react-flow__edge {
+  pointer-events: visibleStroke;
+}
+
+.react-flow__edge-label,
+.react-flow__edgelabel-renderer {
+  z-index: 2 !important;
+}
+
+.react-flow__controls-button {
+  background: var(--panel-bg) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--hover) !important;
+}
+
+.react-flow__controls-button svg {
+  fill: var(--text);
+}
+
+.react-flow__handle {
+  border-radius: 50%;
+}
+
+.react-flow__minimap {
+  bottom: 60px;
+}
