@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Icon } from '@/components/ui/Icon';
 import { useCanvas } from '@/lib/store/canvasStore';
 import { autoLayout } from '@/lib/layout/elk';
+import { getRecorder } from '@/lib/persistence/versionRecorder';
 import { cn } from '@/lib/utils';
 
 /**
@@ -41,6 +42,12 @@ export function CanvasToolbar() {
       window.setTimeout(() => {
         fitView({ duration: 320, padding: 0.18 });
       }, 80);
+      // Auto-layout sonrası kalıcı versiyon — kullanıcı 5sn idle'ı beklemeden
+      // doğrudan tarihte bir satır oluşur, geri çıkış kolaylaşır.
+      void getRecorder()?.recordAuto(
+        'auto-layout',
+        direction === 'DOWN' ? 'Auto-layout · ↓' : 'Auto-layout · →',
+      );
       toast.success(`Auto-layout · ${direction === 'DOWN' ? 'Top → Bottom' : 'Left → Right'}`);
     } catch (err) {
       console.error(err);
@@ -106,6 +113,23 @@ export function CanvasToolbar() {
       >
         <Icon name="search" size={14} stroke={1.6} />
         <span className="text-[11px] font-medium">Fit</span>
+      </ToolButton>
+      <div className="h-4 w-px bg-border" />
+      <ToolButton
+        onClick={async () => {
+          const rec = getRecorder();
+          if (!rec) {
+            toast.error('Open a project first.');
+            return;
+          }
+          await rec.recordManual('Manual save');
+          toast.success('Version saved');
+        }}
+        ariaLabel="Save version"
+        title="Save current version"
+      >
+        <Icon name="check" size={14} stroke={1.6} />
+        <span className="text-[11px] font-medium">Save</span>
       </ToolButton>
     </div>
   );

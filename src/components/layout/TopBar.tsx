@@ -1,8 +1,10 @@
 import { lazy, Suspense, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { toast } from 'sonner';
 import { Icon } from '@/components/ui/Icon';
 import { useSettings } from '@/lib/store/settingsStore';
 import { useProject } from '@/lib/store/projectStore';
+import { useIdentity } from '@/lib/store/identityStore';
 import { usePersistence } from '@/lib/persistence';
 import { cn } from '@/lib/utils';
 
@@ -12,10 +14,16 @@ const SettingsDrawer = lazy(() =>
   })),
 );
 
-export function TopBar() {
+interface TopBarProps {
+  onEditIdentity?: () => void;
+}
+
+export function TopBar({ onEditIdentity }: TopBarProps = {}) {
   const { theme, toggleTheme, aiOpen, setAiOpen } = useSettings();
   const project = useProject((s) => s.current);
   const status = usePersistence((s) => s.status);
+  const username = useIdentity((s) => s.username);
+  const userColor = useIdentity((s) => s.userColor);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
@@ -35,13 +43,34 @@ export function TopBar() {
 
       <div className="flex-1" />
 
+      {username && onEditIdentity && (
+        <motion.button
+          whileHover={{ y: -0.5 }}
+          whileTap={{ scale: 0.94 }}
+          onClick={onEditIdentity}
+          aria-label={`User: ${username} (edit)`}
+          title={`${username} — edit`}
+          className="mr-1 flex h-[22px] w-[22px] items-center justify-center rounded-full text-[10.5px] font-semibold text-white shadow-sm ring-1 ring-border"
+          style={{ background: userColor }}
+        >
+          {username.slice(0, 1).toUpperCase()}
+        </motion.button>
+      )}
+
       <TopBarButton onClick={toggleTheme} aria-label="Toggle theme">
         <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={13} />
       </TopBarButton>
       <TopBarButton onClick={() => setSettingsOpen(true)} aria-label="Settings">
         <Icon name="gear" size={13} />
       </TopBarButton>
-      <TopBarButton aria-label="Share">
+      <TopBarButton
+        onClick={() =>
+          toast('Share yakında', {
+            description: 'Bu özellik henüz hazır değil.',
+          })
+        }
+        aria-label="Share"
+      >
         <Icon name="share" size={13} />
         <span className="text-[11px]">Share</span>
       </TopBarButton>

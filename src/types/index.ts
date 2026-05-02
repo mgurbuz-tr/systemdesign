@@ -45,6 +45,20 @@ export type EdgeStyle = 'curved' | 'orthogonal' | 'straight';
 /** Node-content density (user-selectable in settings). */
 export type NodeDisplay = 'icon-only' | 'icon-label' | 'detailed';
 
+/**
+ * Capability id — capabilities a node type can carry.
+ * Authoritative list; capability files (`src/lib/capabilities/*`) use this
+ * union as the id. When adding a new capability, register it here too.
+ */
+export type CapabilityId =
+  | 'schema'
+  | 'api'
+  | 'consuming'
+  | 'scheduled'
+  | 'producing'
+  | 'reliability'
+  | 'notes';
+
 /** Catalog entry — describes a draggable component type. */
 export interface CatalogItem {
   type: string; // 'postgres' | 'redis' | ...
@@ -55,9 +69,12 @@ export interface CatalogItem {
   tone: Tone;
   category: ComponentCategory;
   supportedProtocols?: Protocol[];
-  hasSchemaEditor?: boolean;
-  hasApiEditor?: boolean;
-  hasConsumerEditor?: boolean;
+  /**
+   * Capabilities this type carries. Source of truth: which inspector tabs
+   * appear and which `set_*` patch ops are applicable derive from here.
+   */
+  capabilities?: CapabilityId[];
+  /** Mockup editor — for client types; not tied to the capability system. */
   hasMockupEditor?: boolean;
   defaultConfig?: Record<string, unknown>;
 }
@@ -102,6 +119,21 @@ export interface DbSchema {
   tables: TableDef[];
 }
 
+/**
+ * A single DTO field — flat, name + type + optional flag + free-text
+ * description. Type is a free string so users (and the AI) can express
+ * primitives (`string`, `int`, `uuid`), arrays (`string[]`, `User[]`),
+ * and references to other DTOs (`UserPayload`) without locking us into
+ * a JSON-Schema-shaped tree.
+ */
+export interface DtoField {
+  name: string;
+  type: string;
+  /** True if the field MAY be omitted from the wire payload. */
+  optional?: boolean;
+  description?: string;
+}
+
 /** API endpoint, generic across protocols. */
 export interface ApiEndpoint {
   // REST: method + path. gRPC/GraphQL/SignalR: name. WS/SignalR: events.
@@ -110,8 +142,12 @@ export interface ApiEndpoint {
   name?: string;
   events?: string[];
   description?: string;
-  request?: unknown; // JSON Schema (Zod inferred elsewhere)
-  response?: unknown;
+  /** Request DTO — input payload field list. */
+  request?: DtoField[];
+  /** Response DTO — output payload field list. */
+  response?: DtoField[];
+  /** HTTP status codes the endpoint can return (e.g. ["200", "404"]). */
+  statusCodes?: string[];
 }
 
 export interface ApiProtocolBlock {
@@ -124,13 +160,117 @@ export interface ApiSpec {
   protocols: ApiProtocolBlock[];
 }
 
-/** Hangfire / consumer / worker config. */
+/**
+ * @deprecated — use `ConsumingSpec` and/or `ScheduledSpec` instead. Kept for
+ * backwards compat with projects saved before the capability split. Capabilities
+ * `consuming` and `scheduled` read from this as a fallback when the new fields
+ * aren't populated yet, then write to the new fields on the next change.
+ */
 export interface ConsumerSpec {
-  sourceNodeId?: string; // queue/topic node we consume from
+  sourceNodeId?: string;
   handler: string;
-  schedule?: string; // cron expression
+  schedule?: string;
   concurrency?: number;
 }
+
+/** `consuming` capability — worker config that consumes from a queue. */
+export interface ConsumingSpec {
+  /** Source queue/topic node id. */
+  sourceNodeId?: string;
+  /** Handler/processor name or signature. */
+  handler: string;
+  /** Number of concurrent handlers. */
+  concurrency?: number;
+  /** Optional dead-letter queue node id. */
+  deadLetterNodeId?: string;
+  /** Free-form notes (idempotency key, retry strategy, …). */
+  notes?: string;
+}
+
+/** `scheduled` capability — cron-driven runner config. */
+export interface ScheduledSpec {
+  /** Cron expression or free-form like "every 5m" / "@hourly". */
+  schedule: string;
+  /** Handler/job name to run. */
+  handler?: string;
+  /** Human-readable description. */
+  description?: string;
+  /** Timezone (e.g. "Europe/Istanbul"). */
+  timezone?: string;
+}
+
+/** `producing` capability — event definition written to a queue/topic. */
+export interface ProducedEvent {
+  /** Event/message name (e.g. "OrderCreated"). */
+  name: string;
+  /** Service node ids that publish this event. */
+  publishers?: string[];
+  /** Payload fields — simple name:type list. */
+  fields?: Array<{ name: string; type: string; description?: string }>;
+  description?: string;
+}
+
+export interface ProducingSpec {
+  events: ProducedEvent[];
+}
+
+/** CAP theorem trade-off — pick two of three under network partition. */
+export type CapProfile = 'CP' | 'AP' | 'CA';
+
+/**
+ * PACELC: under Partition pick A or C; Else (no partition) pick L (latency)
+ * or C (consistency). Four corners for distributed data stores / services.
+ */
+export type PacelcProfile = 'PA/EL' | 'PA/EC' | 'PC/EL' | 'PC/EC';
+
+export type ConsistencyModel =
+  | 'strong'
+  | 'eventual'
+  | 'causal'
+  | 'read-your-writes';
+
+export type RedundancyModel =
+  | 'none'
+  | 'active-passive'
+  | 'active-active'
+  | 'multi-region';
+
+export interface SloSpec {
+  /** Target p99 latency in milliseconds. */
+  latencyP99Ms?: number;
+  /** Target availability as a fraction (e.g. 0.999 = 99.9%). */
+  availability?: number;
+  /** Target throughput in requests per second. */
+  rpsTarget?: number;
+}
+
+/**
+ * `reliability` capability — CAP/PACELC profile, SLO targets, replicas and
+ * redundancy. Used by static analyzers (SPOF audit, CAP mismatch detection)
+ * and as `set_reliability` AI patch op.
+ */
+export interface ReliabilitySpec {
+  cap?: CapProfile;
+  pacelc?: PacelcProfile;
+  consistencyModel?: ConsistencyModel;
+  slo?: SloSpec;
+  /** Number of running replicas. 0/1 = potential SPOF. */
+  replicas?: number;
+  redundancy?: RedundancyModel;
+  /** Free-text failure modes (AI-fillable). */
+  failureModes?: string[];
+}
+
+export interface ArchitectureNotesSpec {
+  summary?: string;
+  designPatterns?: string[];
+  capTradeoffs?: string[];
+  operationalRisks?: string[];
+  recommendations?: string[];
+}
+
+/** Edge criticality for latency budget + critical-path analysis. */
+export type EdgeCriticality = 'critical' | 'normal' | 'background';
 
 /** Custom data carried by every canvas node. */
 export interface NodeData extends Record<string, unknown> {
@@ -149,7 +289,15 @@ export interface NodeData extends Record<string, unknown> {
   schema?: DbSchema;
   mockup?: MockupSpec;
   api?: ApiSpec;
+  /** @deprecated — replaced by `consuming` + `scheduled`. Read-only fallback. */
   consumer?: ConsumerSpec;
+  consuming?: ConsumingSpec;
+  scheduled?: ScheduledSpec;
+  producing?: ProducingSpec;
+  /** Reliability profile (CAP/PACELC/SLO) — feeds the analysis suite. */
+  reliability?: ReliabilitySpec;
+  /** Structured architect notes generated by AI or edited manually. */
+  architectureNotes?: ArchitectureNotesSpec;
   /** Free-text markdown notes shown in Inspector + included in AI context. */
   notes?: string;
 }
@@ -161,6 +309,10 @@ export interface EdgeData extends Record<string, unknown> {
   style?: EdgeStyle;
   /** True if event/async — renders dashed. */
   async?: boolean;
+  /** Estimated p99 latency in ms; falls back to a per-protocol default. */
+  latencyMsHint?: number;
+  /** User override — shapes critical-path + bottleneck weighting. */
+  criticality?: EdgeCriticality;
 }
 
 /** Logical grouping (VPC, tier, etc.) — uses xyflow group node. */
@@ -175,6 +327,8 @@ export interface ProjectMeta {
   createdAt: number;
   updatedAt: number;
   description?: string;
+  /** Template the project was created from (if any). Used by the "Reset to template" flow. */
+  templateId?: string;
 }
 
 export interface ProjectSnapshot {

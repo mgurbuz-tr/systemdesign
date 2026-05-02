@@ -1,28 +1,43 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Node } from '@xyflow/react';
 import { Icon } from '@/components/ui/Icon';
 import { useCanvas } from '@/lib/store/canvasStore';
 import { useSettings } from '@/lib/store/settingsStore';
-import { askAiAboutNode } from '@/lib/ai/askAi';
+import { useAiUi } from '@/lib/store/aiUiStore';
+import { askAiAboutNode, askAiForCapability } from '@/lib/ai/askAi';
 import { findCatalogItem } from '@/lib/catalog';
+import {
+  capabilityRegistry,
+  type CapabilityId,
+  type MergeStrategy,
+  type NodeCapability,
+} from '@/lib/capabilities';
 import { DbSchemaEditor } from './DbSchemaEditor';
 import { ApiEndpointEditor } from './ApiEndpointEditor';
-import { ConsumerEditor } from './ConsumerEditor';
+import { ConsumingEditor } from './ConsumingEditor';
+import { ScheduledEditor } from './ScheduledEditor';
+import { ProducingEditor } from './ProducingEditor';
+import { ReliabilityEditor } from './ReliabilityEditor';
 import { EdgeProtocolEditor } from './EdgeProtocolEditor';
 import { MockupEditor } from './MockupEditor';
 import { QuickStats } from './QuickStats';
 import type {
-  ApiSpec,
-  ConsumerSpec,
-  DbSchema,
+  ConsumingSpec,
   EdgeData,
   MockupSpec,
   NodeData,
+  ProducingSpec,
+  ReliabilitySpec,
+  ScheduledSpec,
+  Tone,
 } from '@/types';
+import { findSpofs } from '@/lib/analysis';
 import { cn } from '@/lib/utils';
 
-type TabKey = 'basic' | 'schema' | 'api' | 'consumer' | 'mockup' | 'notes';
+/** Statik tab'lar — capability'sizler. */
+type StaticTabKey = 'basic' | 'mockup';
+type TabKey = StaticTabKey | CapabilityId;
 
 export function Inspector() {
   const { inspectorOpen, setInspectorOpen } = useSettings();
@@ -57,16 +72,16 @@ export function Inspector() {
               key={selectedNode.id}
               node={selectedNode}
               nodes={nodes}
-              onLabel={(label) => updateNode(selectedNode.id, { label })}
-              onMeta={(meta) => updateNode(selectedNode.id, { meta })}
-              onSchema={(schema) => updateNode(selectedNode.id, { schema })}
-              onApi={(api) => updateNode(selectedNode.id, { api })}
-              onConsumer={(consumer) => updateNode(selectedNode.id, { consumer })}
-              onMockup={(mockup) => updateNode(selectedNode.id, { mockup })}
-              onNotes={(notes) => updateNode(selectedNode.id, { notes })}
-              onAskAi={() => askAiAboutNode(selectedNode.data.label, selectedNode.data.type)}
-              onLock={() => useCanvas.getState().toggleNodeLock(selectedNode.id)}
-              onHide={() => useCanvas.getState().toggleNodeHidden(selectedNode.id)}
+              onPatch={(patch) => updateNode(selectedNode.id, patch)}
+              onAskAi={() =>
+                askAiAboutNode(selectedNode.data.label, selectedNode.data.type)
+              }
+              onLock={() =>
+                useCanvas.getState().toggleNodeLock(selectedNode.id)
+              }
+              onHide={() =>
+                useCanvas.getState().toggleNodeHidden(selectedNode.id)
+              }
               onClose={() => setInspectorOpen(false)}
               onDelete={() => removeNode(selectedNode.id)}
             />
@@ -88,13 +103,7 @@ export function Inspector() {
 function NodeInspector({
   node,
   nodes,
-  onLabel,
-  onMeta,
-  onSchema,
-  onApi,
-  onConsumer,
-  onMockup,
-  onNotes,
+  onPatch,
   onAskAi,
   onLock,
   onHide,
@@ -103,13 +112,7 @@ function NodeInspector({
 }: {
   node: Node<NodeData>;
   nodes: Node<NodeData>[];
-  onLabel: (v: string) => void;
-  onMeta: (v: string) => void;
-  onSchema: (s: DbSchema) => void;
-  onApi: (a: ApiSpec) => void;
-  onConsumer: (c: ConsumerSpec) => void;
-  onMockup: (m: MockupSpec) => void;
-  onNotes: (n: string) => void;
+  onPatch: (patch: Partial<NodeData>) => void;
   onAskAi: () => void;
   onLock: () => void;
   onHide: () => void;
@@ -117,32 +120,47 @@ function NodeInspector({
   onDelete: () => void;
 }) {
   const catalog = findCatalogItem(node.data.type);
-  const tabs = useMemo<{ key: TabKey; label: string }[]>(() => {
-    const arr: { key: TabKey; label: string }[] = [{ key: 'basic', label: 'Basic' }];
-    if (catalog?.hasSchemaEditor) arr.push({ key: 'schema', label: 'Schema' });
-    if (catalog?.hasMockupEditor) arr.push({ key: 'mockup', label: 'Screens' });
-    if (catalog?.hasApiEditor) arr.push({ key: 'api', label: 'API' });
-    if (catalog?.hasConsumerEditor) arr.push({ key: 'consumer', label: 'Consumer' });
-    arr.push({ key: 'notes', label: 'Notes' });
-    return arr;
-  }, [catalog]);
+  // Capabilities order'a göre sıralı; statik tab'lar arasına serpiştirilir.
+  const caps = useMemo(
+    () => capabilityRegistry.forNode(node.data),
+    [node.data],
+  );
 
-  // Open the most useful tab by default rather than always landing on Basic.
-  // Schema > Mockup > Consumer > API > Basic — match the most likely first
-  // edit for a given node type.
-  const defaultTab: TabKey = catalog?.hasSchemaEditor
-    ? 'schema'
-    : catalog?.hasMockupEditor
-      ? 'mockup'
-      : catalog?.hasConsumerEditor
-        ? 'consumer'
-        : catalog?.hasApiEditor
-          ? 'api'
-          : 'basic';
+  const tabs = useMemo<{ key: TabKey; label: string }[]>(() => {
+    const arr: { key: TabKey; label: string }[] = [
+      { key: 'basic', label: 'Basic' },
+    ];
+    for (const c of caps) arr.push({ key: c.id, label: c.label });
+    if (catalog?.hasMockupEditor) arr.push({ key: 'mockup', label: 'Screens' });
+    return arr;
+  }, [caps, catalog]);
+
+  // İlk anlamlı capability açık başlasın; yoksa basic.
+  const defaultTab: TabKey = caps[0]?.id ?? (catalog?.hasMockupEditor ? 'mockup' : 'basic');
   const [active, setActive] = useState<TabKey>(defaultTab);
 
-  // Suggestions for "API calls" autocomplete in Mockup editor —
-  // surface every endpoint defined elsewhere on the canvas.
+  // When an AI patch (set_<cap>) lands on this node, jump to the matching
+  // capability tab so the user immediately sees what changed instead of
+  // wondering whether the patch did anything.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ nodeId: string; capabilityId: CapabilityId }>;
+      if (!ce.detail) return;
+      if (ce.detail.nodeId !== node.id) return;
+      // Only switch if the tab is one this node actually exposes.
+      if (caps.some((c) => c.id === ce.detail.capabilityId)) {
+        setActive(ce.detail.capabilityId);
+      }
+    };
+    window.addEventListener('sd:capability-applied', handler as EventListener);
+    return () =>
+      window.removeEventListener(
+        'sd:capability-applied',
+        handler as EventListener,
+      );
+  }, [node.id, caps]);
+
+  // Mockup editor için "elsewhere defined endpoint" suggestions.
   const apiSuggestions = useMemo(() => {
     const arr: string[] = [];
     for (const n of nodes) {
@@ -160,6 +178,8 @@ function NodeInspector({
     return arr;
   }, [nodes]);
 
+  const activeCap = caps.find((c) => c.id === active);
+
   return (
     <>
       <Header
@@ -176,13 +196,13 @@ function NodeInspector({
         onAskAi={onAskAi}
       />
 
-      <div className="-mb-px flex gap-0.5 border-b border-border px-3.5">
+      <div className="-mb-px flex gap-0.5 overflow-x-auto border-b border-border px-3.5">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setActive(t.key)}
             className={cn(
-              'relative px-2 pb-1.5 pt-0.5 text-[11px] font-medium',
+              'relative px-2 pb-1.5 pt-0.5 text-[11px] font-medium whitespace-nowrap',
               active === t.key ? 'text-text' : 'text-text-dim hover:text-text',
             )}
           >
@@ -198,52 +218,229 @@ function NodeInspector({
         ))}
       </div>
 
+      {/* AI fill bar — capability tab'larında görünür */}
+      {activeCap && (
+        <CapabilityAiBar
+          capability={activeCap}
+          nodeId={node.id}
+          nodeLabel={node.data.label}
+        />
+      )}
+
+      {/* Patch-pending lock — AI bekleyen bir öneri varsa manuel edit kapalı.
+          Yoksa kullanıcının bir kolonu ekleyip AI Apply'a basması arasında
+          AI'ın snapshot'ı kullanıcı edit'ini eziyordu. */}
+      <PatchPendingBanner activeCap={activeCap} />
+
       <div className="flex-1 overflow-auto p-3.5">
         {active === 'basic' && (
           <div className="space-y-5">
             <NodeBasics
               label={node.data.label}
               meta={node.data.meta}
-              onLabel={onLabel}
-              onMeta={onMeta}
+              onLabel={(label) => onPatch({ label })}
+              onMeta={(meta) => onPatch({ meta })}
             />
             <QuickStats node={node} nodes={nodes} edges={useCanvas.getState().edges} />
           </div>
         )}
-        {active === 'schema' && catalog?.hasSchemaEditor && (
-          <DbSchemaEditor
-            schema={node.data.schema ?? { tables: [] }}
-            onChange={onSchema}
-          />
-        )}
-        {active === 'api' && catalog?.hasApiEditor && (
-          <ApiEndpointEditor
-            api={node.data.api ?? { protocols: [] }}
-            allowedProtocols={catalog?.supportedProtocols}
-            onChange={onApi}
-          />
-        )}
-        {active === 'consumer' && catalog?.hasConsumerEditor && (
-          <ConsumerEditor
-            consumer={node.data.consumer ?? { handler: '', concurrency: 1 }}
+
+        {activeCap && (
+          <CapabilityTabContent
+            cap={activeCap}
+            node={node}
             nodes={nodes}
-            selfId={node.id}
-            onChange={onConsumer}
+            onPatch={onPatch}
           />
         )}
+
         {active === 'mockup' && catalog?.hasMockupEditor && (
           <MockupEditor
             mockup={node.data.mockup ?? { screens: [] }}
             apiSuggestions={apiSuggestions}
-            onChange={onMockup}
+            onChange={(mockup: MockupSpec) => onPatch({ mockup })}
           />
         )}
-        {active === 'notes' && (
-          <NotesEditor notes={node.data.notes ?? ''} onChange={onNotes} />
-        )}
+
       </div>
     </>
   );
+}
+
+/**
+ * Capability tab'ında AI fill butonları + mode seçici. Default mode
+ * capability.mergeStrategy'den gelir, kullanıcı override edebilir.
+ */
+function CapabilityAiBar({
+  capability,
+  nodeId,
+  nodeLabel,
+}: {
+  capability: NodeCapability;
+  nodeId: string;
+  nodeLabel: string;
+}) {
+  const fire = (mode: MergeStrategy) =>
+    askAiForCapability({
+      nodeId,
+      nodeLabel,
+      capabilityId: capability.id,
+      capabilityLabel: capability.label,
+      mode,
+    });
+
+  return (
+    <div className="flex items-center gap-1.5 border-b border-border bg-input/30 px-3 py-1.5">
+      <Icon name="sparkles" size={11} color="var(--accent)" />
+      <span className="text-[10.5px] text-text-dim">Suggest with AI</span>
+      <button
+        onClick={() => fire('augment')}
+        title="Keep existing fields, append new ones"
+        className="ml-auto rounded-full border border-border bg-input px-2 py-0.5 text-[10px] text-text hover:bg-hover"
+      >
+        Fill missing
+      </button>
+      <button
+        onClick={() => fire('replace')}
+        title="Rewrite the whole field from scratch"
+        className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+        style={{ background: 'var(--accent)' }}
+      >
+        Suggest from scratch
+      </button>
+    </div>
+  );
+}
+
+function PatchPendingBanner({ activeCap }: { activeCap?: NodeCapability }) {
+  const pending = useAiUi((s) => s.pendingPatchCount);
+  if (pending === 0 || !activeCap) return null;
+  return (
+    <div className="border-b border-border bg-[#fff8e6] px-3 py-2 text-[10.5px] text-[#a8773d]">
+      <div className="flex items-center gap-1.5">
+        <Icon name="sparkles" size={11} />
+        <span className="font-semibold">
+          Awaiting AI suggestion ({pending} patch)
+        </span>
+      </div>
+      <div className="mt-0.5 text-text-dim">
+        Manual edits are locked — Apply / Discard the patch, then continue
+        editing.
+      </div>
+    </div>
+  );
+}
+
+/** Aktif capability tab'ının editor'ünü routing yapan switch component. */
+function CapabilityTabContent({
+  cap,
+  node,
+  nodes,
+  onPatch,
+}: {
+  cap: NodeCapability;
+  node: Node<NodeData>;
+  nodes: Node<NodeData>[];
+  onPatch: (patch: Partial<NodeData>) => void;
+}) {
+  const pending = useAiUi((s) => s.pendingPatchCount);
+  const disabled = pending > 0;
+  const wrapperClass = disabled
+    ? 'pointer-events-none select-none opacity-50'
+    : '';
+  const wrap = (children: React.ReactNode) => (
+    <div className={wrapperClass} aria-disabled={disabled}>
+      {children}
+    </div>
+  );
+  switch (cap.id) {
+    case 'schema':
+      return wrap(
+        <DbSchemaEditor
+          schema={node.data.schema ?? { tables: [] }}
+          onChange={(schema) => onPatch({ schema })}
+        />,
+      );
+    case 'api': {
+      const allowed = findCatalogItem(node.data.type)?.supportedProtocols;
+      return wrap(
+        <ApiEndpointEditor
+          api={node.data.api ?? { protocols: [] }}
+          allowedProtocols={allowed}
+          onChange={(api) => onPatch({ api })}
+        />,
+      );
+    }
+    case 'consuming': {
+      const current =
+        (cap.read(node.data) as ConsumingSpec | undefined) ??
+        ({ handler: '', concurrency: 1 } as ConsumingSpec);
+      return wrap(
+        <ConsumingEditor
+          consuming={current}
+          nodes={nodes}
+          selfId={node.id}
+          onChange={(consuming) => onPatch({ consuming })}
+        />,
+      );
+    }
+    case 'scheduled': {
+      const current =
+        (cap.read(node.data) as ScheduledSpec | undefined) ??
+        ({ schedule: '' } as ScheduledSpec);
+      return wrap(
+        <ScheduledEditor
+          scheduled={current}
+          onChange={(scheduled) => onPatch({ scheduled })}
+        />,
+      );
+    }
+    case 'producing': {
+      const current =
+        (cap.read(node.data) as ProducingSpec | undefined) ??
+        ({ events: [] } as ProducingSpec);
+      return wrap(
+        <ProducingEditor
+          producing={current}
+          nodes={nodes}
+          selfId={node.id}
+          onChange={(producing) => onPatch({ producing })}
+        />,
+      );
+    }
+    case 'reliability': {
+      const current =
+        (cap.read(node.data) as ReliabilitySpec | undefined) ?? {};
+      // Recompute SPOF info; cheap on small/medium graphs. Topology may
+      // mark the node as a cut vertex, but the production reality is that
+      // replicas >= 2 means the box on screen is N runtime instances behind
+      // a load balancer — not a true SPOF. Mirror SDNode's chrome rule so
+      // Inspector and canvas tell the same story.
+      const allEdges = useCanvas.getState().edges;
+      const spof = findSpofs(nodes, allEdges);
+      const articulation = spof.articulationPoints.includes(node.id);
+      const replicas = current.replicas;
+      const isScaled = typeof replicas === 'number' && replicas >= 2;
+      const isSpof = articulation && !isScaled;
+      return wrap(
+        <ReliabilityEditor
+          reliability={current}
+          tone={(node.data.tone as Tone) ?? 'service'}
+          isSpof={isSpof}
+          onChange={(reliability) => onPatch({ reliability })}
+        />,
+      );
+    }
+    case 'notes':
+      return wrap(
+        <NotesEditor
+          notes={node.data.notes ?? ''}
+          onChange={(notes) => onPatch({ notes })}
+        />,
+      );
+    default:
+      return null;
+  }
 }
 
 function NotesEditor({
@@ -256,12 +453,12 @@ function NotesEditor({
   return (
     <div className="space-y-2">
       <label className="block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-dim">
-        Notes (markdown · AI bağlamına dahil edilir)
+        Notes (markdown · included in AI context)
       </label>
       <textarea
         value={notes}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={`Bu node hakkında notlar:\n- expected RPS: ~2k\n- read-heavy, write nadiren\n- TODO: TLS terminasyonu nerede?`}
+        placeholder={`Notes about this node:\n- expected RPS: ~2k\n- read-heavy, writes rare\n- TODO: where does TLS terminate?`}
         rows={14}
         className="w-full resize-y rounded-md border border-border bg-input px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
       />

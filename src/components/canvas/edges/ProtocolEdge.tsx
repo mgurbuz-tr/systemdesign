@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -8,6 +8,7 @@ import {
   type EdgeProps,
 } from '@xyflow/react';
 import { useSettings } from '@/lib/store/settingsStore';
+import { criticalEdgePairs, useAnalysis } from '@/lib/store/analysisStore';
 import type { EdgeData, Protocol } from '@/types';
 
 const ASYNC_PROTOCOLS: Protocol[] = ['kafka', 'amqp', 'mqtt', 'websocket'];
@@ -43,6 +44,8 @@ const PROTOCOL_TONE: Record<Protocol, string> = {
 function ProtocolEdgeImpl(props: EdgeProps) {
   const {
     id,
+    source,
+    target,
     sourceX,
     sourceY,
     targetX,
@@ -53,9 +56,15 @@ function ProtocolEdgeImpl(props: EdgeProps) {
     data,
   } = props;
   const edgeStyle = useSettings((s) => s.edgeStyle);
+  const showCritical = useSettings((s) => s.analysisOverlays.criticalPath);
+  const report = useAnalysis((s) => s.report);
   const edgeData = (data as EdgeData | undefined) ?? { protocol: 'rest' };
   const protocol = edgeData.protocol;
   const isAsync = edgeData.async ?? ASYNC_PROTOCOLS.includes(protocol);
+  const isCritical = useMemo(() => {
+    if (!showCritical) return false;
+    return criticalEdgePairs(report).has(`${source}→${target}`);
+  }, [showCritical, report, source, target]);
 
   const [path, labelX, labelY] =
     edgeStyle === 'straight'
@@ -80,8 +89,13 @@ function ProtocolEdgeImpl(props: EdgeProps) {
           });
 
   const tone = PROTOCOL_TONE[protocol];
-  const strokeColor = selected ? 'var(--accent)' : 'var(--edge-color)';
+  const strokeColor = selected
+    ? 'var(--accent)'
+    : isCritical
+      ? '#c96442'
+      : 'var(--edge-color)';
   const dasharray = isAsync ? '4 3' : undefined;
+  const strokeWidth = selected ? 2 : isCritical ? 2.5 : 1.5;
 
   return (
     <>
@@ -90,7 +104,7 @@ function ProtocolEdgeImpl(props: EdgeProps) {
         path={path}
         style={{
           stroke: strokeColor,
-          strokeWidth: selected ? 2 : 1.5,
+          strokeWidth,
           strokeDasharray: dasharray,
           ...(selected && {
             animation: 'sd-edge-flow 1.4s linear infinite',

@@ -32,7 +32,7 @@ export async function streamChat(opts: StreamOptions): Promise<string> {
   const body = {
     model: opts.model ?? 'local-model',
     messages: opts.messages,
-    temperature: opts.temperature ?? 0.7,
+    temperature: opts.temperature ?? 0.15,
     stream: true,
   };
 

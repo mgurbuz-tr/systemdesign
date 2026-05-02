@@ -16,6 +16,8 @@ const HelpModal = lazy(() =>
 export function Shortcuts() {
   const setAiOpen = useSettings((s) => s.setAiOpen);
   const aiOpen = useSettings((s) => s.aiOpen);
+  const setHistoryPanelOpen = useSettings((s) => s.setHistoryPanelOpen);
+  const historyPanelOpen = useSettings((s) => s.historyPanelOpen);
   const toggleTheme = useSettings((s) => s.toggleTheme);
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -128,6 +130,16 @@ export function Shortcuts() {
     (e) => {
       e.preventDefault();
       toggleTheme();
+    },
+    { enableOnFormTags: false },
+  );
+
+  // Toggle version history panel
+  useHotkeys(
+    'mod+shift+h',
+    (e) => {
+      e.preventDefault();
+      setHistoryPanelOpen(!historyPanelOpen);
     },
     { enableOnFormTags: false },
   );

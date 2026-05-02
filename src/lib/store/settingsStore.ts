@@ -16,9 +16,20 @@ interface SettingsState {
   lmStudioBaseUrl: string;
   /** Optional Bearer token — newer LM Studio versions enable auth by default. */
   lmStudioApiKey: string;
+  lmStudioModel: string;
+  aiTemperature: number;
+  aiContextPolicy: 'compact' | 'balanced' | 'full';
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
   aiOpen: boolean;
+  historyPanelOpen: boolean;
+  analysisPanelOpen: boolean;
+  /** Canvas overlays surfaced by the analysis suite. */
+  analysisOverlays: {
+    heatmap: boolean;
+    spof: boolean;
+    criticalPath: boolean;
+  };
 
   setTheme: (t: Theme) => void;
   toggleTheme: () => void;
@@ -30,9 +41,18 @@ interface SettingsState {
   setAccent: (c: string) => void;
   setLmStudioBaseUrl: (u: string) => void;
   setLmStudioApiKey: (k: string) => void;
+  setLmStudioModel: (m: string) => void;
+  setAiTemperature: (v: number) => void;
+  setAiContextPolicy: (v: SettingsState['aiContextPolicy']) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setInspectorOpen: (v: boolean) => void;
   setAiOpen: (v: boolean) => void;
+  setHistoryPanelOpen: (v: boolean) => void;
+  setAnalysisPanelOpen: (v: boolean) => void;
+  setAnalysisOverlay: (
+    key: keyof SettingsState['analysisOverlays'],
+    v: boolean,
+  ) => void;
 }
 
 export const useSettings = create<SettingsState>()(
@@ -47,9 +67,15 @@ export const useSettings = create<SettingsState>()(
       accent: '#1a1a1a',
       lmStudioBaseUrl: 'http://localhost:1234',
       lmStudioApiKey: '',
+      lmStudioModel: 'local-model',
+      aiTemperature: 0.15,
+      aiContextPolicy: 'balanced',
       sidebarCollapsed: false,
       inspectorOpen: false,
       aiOpen: false,
+      historyPanelOpen: false,
+      analysisPanelOpen: false,
+      analysisOverlays: { heatmap: false, spof: false, criticalPath: false },
 
       setTheme: (theme) => {
         document.documentElement.classList.add('theme-transition');
@@ -81,9 +107,18 @@ export const useSettings = create<SettingsState>()(
       },
       setLmStudioBaseUrl: (lmStudioBaseUrl) => set({ lmStudioBaseUrl }),
       setLmStudioApiKey: (lmStudioApiKey) => set({ lmStudioApiKey }),
+      setLmStudioModel: (lmStudioModel) => set({ lmStudioModel }),
+      setAiTemperature: (aiTemperature) => set({ aiTemperature }),
+      setAiContextPolicy: (aiContextPolicy) => set({ aiContextPolicy }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
       setAiOpen: (aiOpen) => set({ aiOpen }),
+      setHistoryPanelOpen: (historyPanelOpen) => set({ historyPanelOpen }),
+      setAnalysisPanelOpen: (analysisPanelOpen) => set({ analysisPanelOpen }),
+      setAnalysisOverlay: (key, v) =>
+        set((s) => ({
+          analysisOverlays: { ...s.analysisOverlays, [key]: v },
+        })),
     }),
     {
       name: 'sd-settings',

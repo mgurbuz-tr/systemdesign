@@ -177,8 +177,46 @@ export function SettingsDrawer({ open, onClose }: Props) {
                     </button>
                   </div>
                   <p className="mt-1 text-[10px] text-text-dim">
-                    LM Studio uygulamasında <em>Local Server</em> sekmesinden başlat. Default port: 1234.
+                    Start it from the <em>Local Server</em> tab in LM Studio. Default port: 1234.
                   </p>
+                </Row>
+                <Row label="Model" stack>
+                  <input
+                    value={settings.lmStudioModel}
+                    onChange={(e) => settings.setLmStudioModel(e.target.value)}
+                    placeholder="local-model"
+                    className="h-7 w-full rounded-md border border-border bg-input px-2 font-mono text-[11px] text-text focus:border-accent focus:outline-none"
+                  />
+                </Row>
+                <Row label="Temperature" stack>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={settings.aiTemperature}
+                    onChange={(e) =>
+                      settings.setAiTemperature(
+                        Math.max(0, Math.min(1, Number(e.target.value) || 0)),
+                      )
+                    }
+                    className="h-7 w-full rounded-md border border-border bg-input px-2 font-mono text-[11px] text-text focus:border-accent focus:outline-none"
+                  />
+                </Row>
+                <Row label="Context policy" stack>
+                  <select
+                    value={settings.aiContextPolicy}
+                    onChange={(e) =>
+                      settings.setAiContextPolicy(
+                        e.target.value as 'compact' | 'balanced' | 'full',
+                      )
+                    }
+                    className="h-7 w-full rounded-md border border-border bg-input px-2 text-[11px] text-text focus:border-accent focus:outline-none"
+                  >
+                    <option value="compact">Compact</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="full">Full</option>
+                  </select>
                 </Row>
               </Section>
 

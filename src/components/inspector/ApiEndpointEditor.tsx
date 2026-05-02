@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Icon } from '@/components/ui/Icon';
-import type { ApiEndpoint, ApiProtocolBlock, ApiSpec, Protocol } from '@/types';
+import type {
+  ApiEndpoint,
+  ApiProtocolBlock,
+  ApiSpec,
+  DtoField,
+  Protocol,
+} from '@/types';
 import { cn } from '@/lib/utils';
 
 const PROTOCOL_TABS: { kind: Protocol; label: string }[] = [
@@ -155,7 +161,7 @@ export function ApiEndpointEditor({ api, allowedProtocols, onChange }: Props) {
 
         {(!block || block.endpoints.length === 0) && (
           <div className="rounded-md border border-dashed border-border p-3 text-center text-[10.5px] text-text-dim">
-            Bu protokolde henüz endpoint yok.
+            No endpoints in this protocol yet.
           </div>
         )}
       </div>
@@ -245,12 +251,202 @@ function EndpointFields({
         />
       )}
 
-      <input
+      <textarea
         value={endpoint.description ?? ''}
         onChange={(e) => onChange({ description: e.target.value })}
         placeholder="Description (optional)"
-        className="h-5 w-full border-none bg-transparent text-[10.5px] text-text-dim focus:outline-none"
+        rows={1}
+        className="w-full resize-y border-none bg-transparent text-[10.5px] leading-snug text-text-dim placeholder:text-text-dim focus:outline-none"
       />
+
+      <DtoSection
+        label="Request"
+        fields={endpoint.request}
+        onChange={(request) => onChange({ request })}
+        emptyHint={
+          isRest && (endpoint.method === 'GET' || endpoint.method === 'DELETE')
+            ? 'No body for GET/DELETE — leave empty.'
+            : 'No fields yet.'
+        }
+      />
+
+      <DtoSection
+        label="Response"
+        fields={endpoint.response}
+        onChange={(response) => onChange({ response })}
+        emptyHint="No fields yet."
+      />
+
+      {isRest && (
+        <input
+          value={(endpoint.statusCodes ?? []).join(', ')}
+          onChange={(e) =>
+            onChange({
+              statusCodes: e.target.value
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean),
+            })
+          }
+          placeholder="Status codes: 200, 400, 404 (optional)"
+          className="h-5 w-full border-none bg-transparent font-mono text-[10px] text-text-dim placeholder:text-text-dim focus:outline-none"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Collapsible Request / Response DTO editor for one endpoint. Tabular field
+ * list with `name`, `type`, `optional` toggle, and inline description.
+ */
+function DtoSection({
+  label,
+  fields,
+  onChange,
+  emptyHint,
+}: {
+  label: string;
+  fields?: DtoField[];
+  onChange: (next: DtoField[]) => void;
+  emptyHint: string;
+}) {
+  const [open, setOpen] = useState((fields?.length ?? 0) > 0);
+
+  const update = (i: number, patch: Partial<DtoField>) => {
+    const next = (fields ?? []).map((f, ix) =>
+      ix === i ? { ...f, ...patch } : f,
+    );
+    onChange(next);
+  };
+  const remove = (i: number) =>
+    onChange((fields ?? []).filter((_, ix) => ix !== i));
+  const add = () =>
+    onChange([...(fields ?? []), { name: '', type: 'string' }]);
+
+  const count = fields?.length ?? 0;
+
+  return (
+    <div className="rounded-md border border-border/70 bg-input/30">
+      <div className="flex w-full items-center gap-1.5 px-1.5 py-1">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-1 items-center gap-1.5 text-left"
+          aria-expanded={open}
+        >
+          <motion.span
+            animate={{ rotate: open ? 90 : 0 }}
+            transition={{ duration: 0.12 }}
+            className="flex"
+          >
+            <Icon name="chevron-right" size={9} />
+          </motion.span>
+          <span className="text-[9.5px] font-semibold uppercase tracking-[0.06em] text-text-dim">
+            {label} DTO
+          </span>
+          <span className="text-[9.5px] text-text-dim/80">
+            {count} {count === 1 ? 'field' : 'fields'}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!open) setOpen(true);
+            add();
+          }}
+          className="ml-auto flex h-4 w-4 items-center justify-center rounded text-text-dim hover:bg-hover hover:text-text"
+          aria-label={`Add ${label.toLowerCase()} field`}
+        >
+          <Icon name="plus" size={9} />
+        </button>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="space-y-1 border-t border-border/70 p-1.5">
+              {count === 0 ? (
+                <div className="px-1 py-1 text-[10px] text-text-dim">
+                  {emptyHint}
+                </div>
+              ) : (
+                (fields ?? []).map((f, i) => (
+                  <DtoFieldRow
+                    key={i}
+                    field={f}
+                    onChange={(p) => update(i, p)}
+                    onRemove={() => remove(i)}
+                  />
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function DtoFieldRow({
+  field,
+  onChange,
+  onRemove,
+}: {
+  field: DtoField;
+  onChange: (p: Partial<DtoField>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="space-y-1 rounded border border-border bg-panel p-1">
+      <div className="flex items-center gap-1">
+        <input
+          value={field.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+          placeholder="fieldName"
+          className="h-5 flex-1 min-w-0 rounded border border-transparent bg-transparent px-1 font-mono text-[10.5px] text-text focus:border-border focus:bg-input focus:outline-none"
+        />
+        <span className="text-[10px] text-text-dim/60">:</span>
+        <input
+          value={field.type}
+          onChange={(e) => onChange({ type: e.target.value })}
+          placeholder="string"
+          className="h-5 w-[78px] flex-shrink-0 rounded border border-transparent bg-transparent px-1 font-mono text-[10.5px] text-text focus:border-border focus:bg-input focus:outline-none"
+        />
+        <button
+          onClick={() => onChange({ optional: !field.optional })}
+          title={field.optional ? 'Optional — click to make required' : 'Required — click to make optional'}
+          className={cn(
+            'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded font-mono text-[10px]',
+            field.optional
+              ? 'border border-border bg-input text-text-dim'
+              : 'border border-accent bg-[var(--accent-soft)] text-text',
+          )}
+        >
+          {field.optional ? '?' : '*'}
+        </button>
+        <button
+          onClick={onRemove}
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-text-dim hover:bg-hover hover:text-[#c96442]"
+          aria-label="Remove field"
+        >
+          <Icon name="trash" size={10} />
+        </button>
+      </div>
+      {field.description !== undefined || field.name ? (
+        <input
+          value={field.description ?? ''}
+          onChange={(e) => onChange({ description: e.target.value })}
+          placeholder="Description (optional)"
+          className="h-4 w-full border-none bg-transparent text-[10px] text-text-dim placeholder:text-text-dim/70 focus:outline-none"
+        />
+      ) : null}
     </div>
   );
 }

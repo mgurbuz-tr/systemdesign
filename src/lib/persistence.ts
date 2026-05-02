@@ -12,6 +12,8 @@ import { useCanvas } from '@/lib/store/canvasStore';
 import { useProject } from '@/lib/store/projectStore';
 import type { ProjectMeta } from '@/types';
 import { uid } from '@/lib/utils';
+import { startVersionRecorder } from '@/lib/persistence/versionRecorder';
+import { deleteAllVersionsForProject } from '@/lib/persistence/versions';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -42,6 +44,8 @@ let savedFlashTimer: number | null = null;
 
 /**
  * Subscribe canvas + project changes to debounced auto-save (300ms).
+ * Versiyon kaydedicisini de tek instance olarak tutar — proje açılır kapanır
+ * recorder yaşam döngüsü autosave ile aynı yerde merkezileniyor.
  * Returns cleanup function.
  */
 export function startAutoSave(): () => void {
@@ -70,10 +74,12 @@ export function startAutoSave(): () => void {
 
   const unsubCanvas = useCanvas.subscribe(trigger);
   const unsubProject = useProject.subscribe(trigger);
+  const recorder = startVersionRecorder();
 
   return () => {
     unsubCanvas();
     unsubProject();
+    recorder.stop();
   };
 }
 
@@ -121,12 +127,14 @@ export async function createFromTemplate(
   name: string,
   nodes: import('@xyflow/react').Node[],
   edges: import('@xyflow/react').Edge[],
+  templateId?: string,
 ): Promise<ProjectMeta> {
   const meta: ProjectMeta = {
     id: uid('proj'),
     name,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    templateId,
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db.projects.put({ ...meta, nodes: nodes as any, edges: edges as any });
@@ -135,6 +143,41 @@ export async function createFromTemplate(
   useCanvas.setState({ nodes: nodes as any, edges: edges as any, selectedNodeId: null, selectedEdgeId: null });
   usePersistence.getState().setLastProjectId(meta.id);
   return meta;
+}
+
+/**
+ * Mevcut projeyi bir template'in orijinal haline geri yükler. Canvas tek
+ * atomik setState ile değiştirilir, böylece Cmd+Z ile reset'in kendisi de
+ * geri alınabilir. templateId verilmezse projenin oluşturulduğu template
+ * kullanılır.
+ */
+export async function resetToTemplate(
+  templateId?: string,
+): Promise<{ ok: boolean; templateName?: string }> {
+  const cur = useProject.getState().current;
+  if (!cur) return { ok: false };
+  const id = templateId ?? cur.templateId;
+  if (!id) return { ok: false };
+  const { findTemplate, buildTemplateWithAutoLayout } = await import('@/lib/templates');
+  const tpl = findTemplate(id);
+  if (!tpl) return { ok: false };
+  const built = await buildTemplateWithAutoLayout(tpl);
+  // applyAtomic = single setState → tek undo entry. Mevcut canvas tamamen
+  // template ile değiştirilir; AI ile yapılmış tüm değişiklikler kaybolur.
+  useCanvas.getState().applyAtomic({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    nodes: built.nodes as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    edges: built.edges as any,
+  });
+  // Selection'ı temizle.
+  useCanvas.setState({ selectedNodeId: null, selectedEdgeId: null });
+  // Project meta'da templateId'yi sabitle (eski projelere ilk reset'te eklenir).
+  if (!cur.templateId) {
+    const next = { ...cur, templateId: id, updatedAt: Date.now() };
+    useProject.setState({ current: next });
+  }
+  return { ok: true, templateName: tpl.name };
 }
 
 export async function renameCurrent(name: string): Promise<void> {
@@ -150,6 +193,7 @@ export async function deleteCurrent(): Promise<void> {
   const cur = useProject.getState().current;
   if (!cur) return;
   await delProject(cur.id);
+  await deleteAllVersionsForProject(cur.id);
   if (usePersistence.getState().lastProjectId === cur.id) {
     usePersistence.getState().setLastProjectId(null);
   }

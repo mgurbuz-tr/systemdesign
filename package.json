@@ -1,10 +1,13 @@
 {
   "name": "system-design-editor",
+  "description": "Local-first system design editor with reversible AI patches and 200-step persistent version history.",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "concurrently -n web,ws -c blue,green \"npm:dev\" \"npm:server\"",
+    "server": "node server/presence-server.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
@@ -15,6 +18,7 @@
     "@xyflow/react": "^12.4.4",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.4",
+    "concurrently": "^9.2.1",
     "dexie": "^4.0.10",
     "elkjs": "^0.11.1",
     "framer-motion": "^11.15.0",
@@ -26,6 +30,7 @@
     "react-resizable-panels": "^2.1.7",
     "sonner": "^1.7.1",
     "tailwind-merge": "^2.5.5",
+    "ws": "^8.20.0",
     "zod": "^3.24.1",
     "zundo": "^2.3.0",
     "zustand": "^5.0.2"
@@ -34,6 +39,7 @@
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react-swc": "^3.7.2",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

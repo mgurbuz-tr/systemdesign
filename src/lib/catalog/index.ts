@@ -2,9 +2,15 @@ import type { CatalogItem } from '@/types';
 
 /**
  * Component catalog — system design building blocks.
- * Original 11 groups ported from .design-ref/data.jsx::NODE_CATALOG,
- * extended with: SignalR, Hangfire/consumer, vector DBs, observability stack,
- * compute primitives, security/auth, more queues/databases.
+ *
+ * Original 11 groups ported from .design-ref/data.jsx::NODE_CATALOG, extended
+ * with: SignalR, Hangfire, vector DBs, observability stack, compute
+ * primitives, security/auth, more queues/databases.
+ *
+ * Each item declares the capabilities it carries (`schema`, `api`,
+ * `consuming`, `scheduled`, `producing`). Inspector tabs, AI patch ops, and
+ * prompt-time validation matrices are derived from this list — there are no
+ * other source-of-truth flags.
  */
 
 export interface CatalogGroup {
@@ -25,7 +31,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'data',
         category: 'database',
         supportedProtocols: ['sql'],
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'mysql',
@@ -36,7 +42,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'data',
         category: 'database',
         supportedProtocols: ['sql'],
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'mongo',
@@ -46,7 +52,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'mongo',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'dynamo',
@@ -56,7 +62,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'dynamo',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'cassandra',
@@ -66,7 +72,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'database',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'neo4j',
@@ -76,7 +82,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'database',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'clickhouse',
@@ -86,7 +92,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'database',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'influx',
@@ -96,7 +102,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'database',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
     ],
   },
@@ -145,6 +151,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'queue',
         category: 'queue',
         supportedProtocols: ['kafka'],
+        capabilities: ['producing'],
       },
       {
         type: 'rabbit',
@@ -155,6 +162,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'queue',
         category: 'queue',
         supportedProtocols: ['amqp'],
+        capabilities: ['producing'],
       },
       {
         type: 'sqs',
@@ -164,6 +172,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'rabbit',
         tone: 'queue',
         category: 'queue',
+        capabilities: ['producing'],
       },
       {
         type: 'nats',
@@ -173,6 +182,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'kafka',
         tone: 'queue',
         category: 'queue',
+        capabilities: ['producing'],
       },
       {
         type: 'pulsar',
@@ -182,6 +192,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'kafka',
         tone: 'queue',
         category: 'queue',
+        capabilities: ['producing'],
       },
       {
         type: 'mqtt',
@@ -192,6 +203,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'queue',
         category: 'queue',
         supportedProtocols: ['mqtt'],
+        capabilities: ['producing'],
       },
     ],
   },
@@ -207,7 +219,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'service',
         category: 'compute',
         supportedProtocols: ['rest'],
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'graphql',
@@ -218,7 +230,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'service',
         category: 'compute',
         supportedProtocols: ['graphql'],
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'grpc',
@@ -229,7 +241,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'service',
         category: 'compute',
         supportedProtocols: ['grpc'],
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'websocket',
@@ -240,7 +252,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'service',
         category: 'compute',
         supportedProtocols: ['websocket'],
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'signalr',
@@ -251,7 +263,7 @@ export const CATALOG: CatalogGroup[] = [
         tone: 'service',
         category: 'compute',
         supportedProtocols: ['signalr'],
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
     ],
   },
@@ -266,7 +278,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'gateway',
         tone: 'edge',
         category: 'network',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'cdn',
@@ -335,7 +347,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'search',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'meili',
@@ -345,7 +357,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'search',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'opensearch',
@@ -355,7 +367,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'search',
         tone: 'data',
         category: 'database',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
     ],
   },
@@ -370,7 +382,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'llm',
         tone: 'ai',
         category: 'ai',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'vector',
@@ -380,7 +392,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'vector',
         tone: 'ai',
         category: 'ai',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
       {
         type: 'embed',
@@ -390,7 +402,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'sparkles',
         tone: 'ai',
         category: 'ai',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'modelserver',
@@ -400,7 +412,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'llm',
         tone: 'ai',
         category: 'ai',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'feature',
@@ -410,7 +422,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'sparkles',
         tone: 'ai',
         category: 'ai',
-        hasSchemaEditor: true,
+        capabilities: ['schema'],
       },
     ],
   },
@@ -425,7 +437,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'auth',
         tone: 'service',
         category: 'auth',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'idp',
@@ -435,7 +447,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'auth',
         tone: 'service',
         category: 'auth',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'vault',
@@ -445,7 +457,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'auth',
         tone: 'service',
         category: 'auth',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
     ],
   },
@@ -460,7 +472,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'api',
         tone: 'service',
         category: 'compute',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'lambda',
@@ -470,8 +482,9 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'worker',
         tone: 'service',
         category: 'compute',
-        hasApiEditor: true,
-        hasConsumerEditor: true,
+        // Lambdas are dual-mode: HTTP-triggered (api) or queue-triggered
+        // (consuming). Both editor tabs are visible; AI fills the relevant one.
+        capabilities: ['api', 'consuming'],
       },
       {
         type: 'container',
@@ -481,7 +494,7 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'api',
         tone: 'service',
         category: 'compute',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
       {
         type: 'edgefn',
@@ -491,62 +504,92 @@ export const CATALOG: CatalogGroup[] = [
         icon: 'worker',
         tone: 'service',
         category: 'compute',
-        hasApiEditor: true,
+        capabilities: ['api'],
       },
     ],
   },
   {
-    group: 'Workers & Consumers',
+    group: 'Consumers',
     items: [
       {
-        type: 'worker',
-        group: 'Workers & Consumers',
-        label: 'Background Worker',
-        description: 'Async job runner',
+        type: 'consumer',
+        group: 'Consumers',
+        label: 'Queue Consumer',
+        description: 'Topic/queue consumer · language-agnostic',
         icon: 'worker',
         tone: 'ops',
         category: 'compute',
-        hasConsumerEditor: true,
-      },
-      {
-        type: 'cron',
-        group: 'Workers & Consumers',
-        label: 'Cron / Scheduler',
-        description: 'Scheduled tasks',
-        icon: 'worker',
-        tone: 'ops',
-        category: 'compute',
-        hasConsumerEditor: true,
-      },
-      {
-        type: 'hangfire',
-        group: 'Workers & Consumers',
-        label: 'Hangfire',
-        description: '.NET background jobs',
-        icon: 'worker',
-        tone: 'ops',
-        category: 'compute',
-        hasConsumerEditor: true,
+        // Generic, language-agnostic queue consumer — kuyruktan mesaj çekip
+        // işler. Hangfire'dan ayrı: Hangfire .NET internal scheduler.
+        capabilities: ['consuming'],
       },
       {
         type: 'kafka-consumer',
-        group: 'Workers & Consumers',
+        group: 'Consumers',
         label: 'Kafka Consumer',
-        description: 'Stream consumer group',
+        description: 'Kafka stream consumer group',
         icon: 'worker',
         tone: 'ops',
         category: 'compute',
-        hasConsumerEditor: true,
+        capabilities: ['consuming'],
+      },
+      {
+        type: 'worker',
+        group: 'Consumers',
+        label: 'Background Worker',
+        description: 'In-memory async job runner',
+        icon: 'worker',
+        tone: 'ops',
+        category: 'compute',
+        capabilities: ['consuming'],
       },
       {
         type: 'webhook',
-        group: 'Workers & Consumers',
+        group: 'Consumers',
         label: 'Webhook Handler',
         description: 'Incoming HTTP callbacks',
         icon: 'worker',
         tone: 'ops',
         category: 'compute',
-        hasApiEditor: true,
+        capabilities: ['api'],
+      },
+    ],
+  },
+  {
+    group: 'Schedulers',
+    items: [
+      {
+        type: 'cron',
+        group: 'Schedulers',
+        label: 'Cron / Scheduler',
+        description: 'Cron · interval · k8s CronJob',
+        icon: 'worker',
+        tone: 'ops',
+        category: 'compute',
+        capabilities: ['scheduled'],
+      },
+      {
+        type: 'hangfire',
+        group: 'Schedulers',
+        label: 'Hangfire',
+        description: '.NET internal job scheduler',
+        icon: 'worker',
+        tone: 'ops',
+        category: 'compute',
+        // Hangfire = .NET ekosisteminde recurring/delayed/fire-and-forget
+        // job runner. Internal storage (SQL Server vb.) kullanır — Kafka/SQS
+        // tüketicisi DEĞİLDİR. Bu yüzden sadece `scheduled` capability'si.
+        capabilities: ['scheduled'],
+      },
+      {
+        type: 'eventbridge',
+        group: 'Schedulers',
+        label: 'EventBridge / Scheduler',
+        description: 'AWS scheduled rules',
+        icon: 'worker',
+        tone: 'ops',
+        category: 'compute',
+        capabilities: ['scheduled'],
       },
     ],
   },
@@ -721,6 +764,9 @@ for (const group of CATALOG) {
     CATALOG_LOOKUP[item.type] = item;
   }
 }
+
+/** Flat list of every catalog item — convenient for prompt-time iteration. */
+export const CATALOG_ITEMS: CatalogItem[] = Object.values(CATALOG_LOOKUP);
 
 export function findCatalogItem(type: string): CatalogItem | undefined {
   return CATALOG_LOOKUP[type];

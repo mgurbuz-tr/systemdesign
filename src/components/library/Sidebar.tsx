@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react';
+import { lazy, Suspense, useState, type DragEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Icon } from '@/components/ui/Icon';
 import { CATALOG, searchCatalog } from '@/lib/catalog';
@@ -6,6 +6,18 @@ import { useSettings } from '@/lib/store/settingsStore';
 import { WorkspaceMenu } from '@/components/projects/WorkspaceMenu';
 import { cn } from '@/lib/utils';
 import type { CatalogItem } from '@/types';
+
+const VersionHistoryPanel = lazy(() =>
+  import('@/components/history/VersionHistoryPanel').then((m) => ({
+    default: m.VersionHistoryPanel,
+  })),
+);
+
+const AnalysisPanel = lazy(() =>
+  import('@/components/analysis/AnalysisPanel').then((m) => ({
+    default: m.AnalysisPanel,
+  })),
+);
 
 export const DRAG_MIME = 'application/x-sd-catalog-type';
 
@@ -16,6 +28,10 @@ function onCatalogDragStart(e: DragEvent, item: CatalogItem) {
 
 export function Sidebar() {
   const { sidebarCollapsed } = useSettings();
+  const historyPanelOpen = useSettings((s) => s.historyPanelOpen);
+  const setHistoryPanelOpen = useSettings((s) => s.setHistoryPanelOpen);
+  const analysisPanelOpen = useSettings((s) => s.analysisPanelOpen);
+  const setAnalysisPanelOpen = useSettings((s) => s.setAnalysisPanelOpen);
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(CATALOG.map((g) => [g.group, true])),
@@ -26,6 +42,49 @@ export function Sidebar() {
   }
 
   const filtered = searchCatalog(search);
+
+  // Mutual-exclusive tabs: only one of analysis/changelog/architecture is
+  // active. Selecting one resets the others so the panel area is unambiguous.
+  const showArchitecture = !historyPanelOpen && !analysisPanelOpen;
+
+  const selectArchitecture = () => {
+    setHistoryPanelOpen(false);
+    setAnalysisPanelOpen(false);
+  };
+  const selectAnalysis = () => {
+    setAnalysisPanelOpen(true);
+    setHistoryPanelOpen(false);
+  };
+  const selectChangelog = () => {
+    setHistoryPanelOpen(true);
+    setAnalysisPanelOpen(false);
+  };
+
+  const sections: Array<{
+    icon: string;
+    label: string;
+    active?: boolean;
+    onClick?: () => void;
+  }> = [
+    {
+      icon: 'graph',
+      label: 'Architecture',
+      active: showArchitecture,
+      onClick: selectArchitecture,
+    },
+    {
+      icon: 'metrics',
+      label: 'Analysis',
+      active: analysisPanelOpen,
+      onClick: selectAnalysis,
+    },
+    {
+      icon: 'history',
+      label: 'Changelog',
+      active: historyPanelOpen,
+      onClick: selectChangelog,
+    },
+  ];
 
   return (
     <aside
@@ -52,19 +111,17 @@ export function Sidebar() {
       </div>
 
       <nav className="border-b border-border p-2" aria-label="Project sections">
-        {[
-          { icon: 'graph', label: 'Architecture', active: true },
-          { icon: 'doc', label: 'Documentation' },
-          { icon: 'folder', label: 'Resources' },
-          { icon: 'history', label: 'Changelog' },
-        ].map((it) => (
+        {sections.map((it) => (
           <button
             key={it.label}
+            onClick={it.onClick}
+            disabled={!it.onClick && !it.active}
             className={cn(
               'flex w-full items-center gap-2 rounded-[5px] px-2.5 py-1.5 text-[12px]',
               it.active
                 ? 'bg-hover font-medium text-text'
                 : 'text-text-dim hover:bg-hover hover:text-text',
+              !it.onClick && !it.active && 'cursor-default opacity-60 hover:bg-transparent hover:text-text-dim',
             )}
           >
             <Icon name={it.icon} size={13} />
@@ -73,64 +130,88 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="px-3 pb-2 pt-3">
-        <div className="flex h-7 items-center gap-1.5 rounded-[5px] border border-border bg-input px-2">
-          <Icon name="search" size={12} color="var(--text-dim)" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search components"
-            className="flex-1 border-none bg-transparent text-[11px] text-text placeholder:text-text-dim focus:outline-none"
-          />
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-auto px-1 pb-3">
-        <div className="flex items-center justify-between px-3 py-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-text-dim">
-            Components
-          </span>
-          <span className="text-[9px] text-text-dim">drag to canvas</span>
-        </div>
-        {filtered.map((group) => {
-          const isOpen = expanded[group.group] !== false;
-          return (
-            <div key={group.group} className="mb-1">
-              <button
-                onClick={() =>
-                  setExpanded((s) => ({ ...s, [group.group]: !isOpen }))
-                }
-                className="flex w-full items-center gap-1 px-3 py-1 text-left text-[11px] font-medium text-text"
-              >
-                <motion.span
-                  animate={{ rotate: isOpen ? 90 : 0 }}
-                  transition={{ duration: 0.12 }}
-                  className="flex"
-                >
-                  <Icon name="chevron-right" size={9} />
-                </motion.span>
-                <span className="flex-1">{group.group}</span>
-                <span className="text-[9px] text-text-dim">{group.items.length}</span>
-              </button>
-              <AnimatePresence initial={false}>
-                {isOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.16, ease: 'easeOut' }}
-                    style={{ overflow: 'hidden' }}
-                  >
-                    {group.items.map((item) => (
-                      <CatalogTile key={item.type} item={item} />
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+      {historyPanelOpen ? (
+        <Suspense
+          fallback={
+            <div className="px-3 py-6 text-center text-[11px] text-text-dim">
+              Loading…
             </div>
-          );
-        })}
-      </div>
+          }
+        >
+          <VersionHistoryPanel />
+        </Suspense>
+      ) : analysisPanelOpen ? (
+        <Suspense
+          fallback={
+            <div className="px-3 py-6 text-center text-[11px] text-text-dim">
+              Loading…
+            </div>
+          }
+        >
+          <AnalysisPanel />
+        </Suspense>
+      ) : (
+        <>
+          <div className="px-3 pb-2 pt-3">
+            <div className="flex h-7 items-center gap-1.5 rounded-[5px] border border-border bg-input px-2">
+              <Icon name="search" size={12} color="var(--text-dim)" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search components"
+                className="flex-1 border-none bg-transparent text-[11px] text-text placeholder:text-text-dim focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto px-1 pb-3">
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-text-dim">
+                Components
+              </span>
+              <span className="text-[9px] text-text-dim">drag to canvas</span>
+            </div>
+            {filtered.map((group) => {
+              const isOpen = expanded[group.group] !== false;
+              return (
+                <div key={group.group} className="mb-1">
+                  <button
+                    onClick={() =>
+                      setExpanded((s) => ({ ...s, [group.group]: !isOpen }))
+                    }
+                    className="flex w-full items-center gap-1 px-3 py-1 text-left text-[11px] font-medium text-text"
+                  >
+                    <motion.span
+                      animate={{ rotate: isOpen ? 90 : 0 }}
+                      transition={{ duration: 0.12 }}
+                      className="flex"
+                    >
+                      <Icon name="chevron-right" size={9} />
+                    </motion.span>
+                    <span className="flex-1">{group.group}</span>
+                    <span className="text-[9px] text-text-dim">{group.items.length}</span>
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {isOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        {group.items.map((item) => (
+                          <CatalogTile key={item.type} item={item} />
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </aside>
   );
 }

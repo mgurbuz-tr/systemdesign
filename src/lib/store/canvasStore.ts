@@ -122,6 +122,7 @@ export const useCanvas = create<CanvasState>()(
   addNodeFromCatalog: (item, position) => {
     const id = uid(item.type);
     const protocol = defaultProtocolFor(item);
+    const caps = new Set(item.capabilities ?? []);
     const node: SDNode = {
       id,
       type: 'sd', // single custom node renderer routes by data.tone
@@ -133,13 +134,15 @@ export const useCanvas = create<CanvasState>()(
         label: item.label,
         meta: item.description,
         config: { ...(item.defaultConfig ?? {}) },
-        ...(item.hasSchemaEditor ? { schema: { tables: [] } } : {}),
-        ...(item.hasApiEditor
+        ...(caps.has('schema') ? { schema: { tables: [] } } : {}),
+        ...(caps.has('api')
           ? { api: { protocols: [{ kind: protocol, endpoints: [] }] } }
           : {}),
-        ...(item.hasConsumerEditor
-          ? { consumer: { handler: '', concurrency: 1 } }
+        ...(caps.has('consuming')
+          ? { consuming: { handler: '', concurrency: 1 } }
           : {}),
+        ...(caps.has('scheduled') ? { scheduled: { schedule: '' } } : {}),
+        ...(caps.has('producing') ? { producing: { events: [] } } : {}),
         ...(item.hasMockupEditor ? { mockup: { screens: [] } } : {}),
       },
     };

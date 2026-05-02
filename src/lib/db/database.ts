@@ -18,9 +18,35 @@ export interface ConversationRow {
   updatedAt: number;
 }
 
+export type VersionTrigger =
+  | 'ai-patch'
+  | 'manual'
+  | 'auto-layout'
+  | 'idle'
+  | 'pre-restore';
+
+/**
+ * Kalıcı versiyon kaydı — projenin canvas durumunun anlamlı bir tetikleyici
+ * sonrası alınmış kopyası. Volatile zundo undo'dan ayrı, kullanıcıya görünür
+ * "değişiklik geçmişi"ni besler. Proje başına 200 satırla sınırlanır
+ * (`MAX_VERSIONS_PER_PROJECT`); FIFO trim `recordVersion` içinde uygulanır.
+ */
+export interface VersionRow {
+  id?: number;
+  projectId: string;
+  createdAt: number;
+  label: string;
+  trigger: VersionTrigger;
+  nodes: Node<NodeData>[];
+  edges: Edge<EdgeData>[];
+  summary?: string;
+  bytes?: number;
+}
+
 class SDDatabase extends Dexie {
   projects!: EntityTable<ProjectRow, 'id'>;
   conversations!: EntityTable<ConversationRow, 'id'>;
+  versions!: EntityTable<VersionRow, 'id'>;
 
   constructor() {
     super('system-design');
@@ -32,6 +58,11 @@ class SDDatabase extends Dexie {
         projects: 'id, name, updatedAt',
         conversations: 'id, updatedAt',
       });
+    this.version(3).stores({
+      projects: 'id, name, updatedAt',
+      conversations: 'id, updatedAt',
+      versions: '++id, projectId, createdAt, [projectId+createdAt]',
+    });
   }
 }
 

@@ -207,7 +207,8 @@ export async function autoLayout(
         ...n,
         position: { x: p.x, y: p.y },
         parentId: p.parentId,
-        extent: 'parent' as const,
+        // extent:'parent' koymuyoruz — kullanıcı drag ile parent dışına
+        // çıkabilmeli (onNodeDragStop yeniden parent ataması yapar).
       };
     }
     // Orphan: ensure stale parentId / extent are cleared.

@@ -136,3 +136,19 @@
 .react-flow__minimap {
   bottom: 60px;
 }
+
+/* Highlight: seçili node'un 1-hop komşuları accent outline + halo alır,
+ * komşu edge'ler accent stroke'a döner. Bağlantısız olanlara dokunulmaz. */
+.react-flow__node.sd-connected > * {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--accent) 14%, transparent),
+    var(--node-shadow);
+  transition: outline-color 180ms ease-out, box-shadow 180ms ease-out;
+}
+.react-flow__edge.sd-connected .react-flow__edge-path {
+  stroke: var(--accent) !important;
+  stroke-width: 2 !important;
+  transition: stroke 180ms ease-out, stroke-width 180ms ease-out;
+}

@@ -1,0 +1,10 @@
+{
+  "name": "system-design-presence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "presence-server.mjs",
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
+}

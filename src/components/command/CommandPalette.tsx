@@ -5,10 +5,14 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { toast } from 'sonner';
 import { Icon } from '@/components/ui/Icon';
 import { CATALOG, findCatalogItem } from '@/lib/catalog';
-import { TEMPLATES } from '@/lib/templates';
+import { TEMPLATES, buildTemplateWithAutoLayout } from '@/lib/templates';
 import { useCanvas } from '@/lib/store/canvasStore';
 import { useSettings } from '@/lib/store/settingsStore';
 import { createFromTemplate, createProject } from '@/lib/persistence';
+import { getRecorder } from '@/lib/persistence/versionRecorder';
+import { listVersions } from '@/lib/persistence/versions';
+import { restoreVersion } from '@/lib/persistence/restoreVersion';
+import { useProject } from '@/lib/store/projectStore';
 
 const QUICK_AI = [
   'Find bottlenecks in this architecture',
@@ -22,6 +26,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const setAiOpen = useSettings((s) => s.setAiOpen);
+  const setHistoryPanelOpen = useSettings((s) => s.setHistoryPanelOpen);
   const toggleTheme = useSettings((s) => s.toggleTheme);
   const setShowGrid = useSettings((s) => s.setShowGrid);
   const setShowMinimap = useSettings((s) => s.setShowMinimap);
@@ -60,9 +65,9 @@ export function CommandPalette() {
   const loadTemplate = async (id: string) => {
     const tpl = TEMPLATES.find((t) => t.id === id);
     if (!tpl) return;
-    const built = tpl.build();
     setOpen(false);
-    const meta = await createFromTemplate(tpl.name, built.nodes, built.edges);
+    const built = await buildTemplateWithAutoLayout(tpl);
+    const meta = await createFromTemplate(tpl.name, built.nodes, built.edges, tpl.id);
     toast.success(`Loaded · ${meta.name}`);
   };
 
@@ -167,6 +172,54 @@ export function CommandPalette() {
                     }}
                   >
                     New blank project
+                  </CmdItem>
+                </Command.Group>
+
+                <Command.Group heading="Version history">
+                  <CmdItem
+                    icon="history"
+                    kbd="⌘⇧H"
+                    onSelect={() => {
+                      setHistoryPanelOpen(true);
+                      setOpen(false);
+                    }}
+                  >
+                    Show version history
+                  </CmdItem>
+                  <CmdItem
+                    icon="check"
+                    onSelect={async () => {
+                      setOpen(false);
+                      const rec = getRecorder();
+                      if (!rec) {
+                        toast.error('Open a project first.');
+                        return;
+                      }
+                      await rec.recordManual('Manual save');
+                      toast.success('Version saved');
+                    }}
+                  >
+                    Save version now
+                  </CmdItem>
+                  <CmdItem
+                    icon="history"
+                    onSelect={async () => {
+                      setOpen(false);
+                      const proj = useProject.getState().current;
+                      if (!proj) {
+                        toast.error('Open a project first.');
+                        return;
+                      }
+                      const list = await listVersions(proj.id, 1);
+                      const last = list[0];
+                      if (!last || last.id == null) {
+                        toast.error('No version to restore.');
+                        return;
+                      }
+                      await restoreVersion(last.id);
+                    }}
+                  >
+                    Restore last version
                   </CmdItem>
                 </Command.Group>
 

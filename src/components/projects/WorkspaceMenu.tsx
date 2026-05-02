@@ -12,8 +12,13 @@ import {
   listProjects,
   openProject,
   renameCurrent,
+  resetToTemplate,
 } from '@/lib/persistence';
-import { TEMPLATES } from '@/lib/templates';
+import {
+  TEMPLATES,
+  buildTemplateWithAutoLayout,
+  findTemplate,
+} from '@/lib/templates';
 import { exportJson, exportMermaid, exportPng, exportSvg } from '@/lib/export';
 import type { ProjectMeta } from '@/types';
 
@@ -213,8 +218,13 @@ export function WorkspaceMenu() {
                     key={t.id}
                     onClick={async () => {
                       setOpen(false);
-                      const built = t.build();
-                      const meta = await createFromTemplate(t.name, built.nodes, built.edges);
+                      const built = await buildTemplateWithAutoLayout(t);
+                      const meta = await createFromTemplate(
+                        t.name,
+                        built.nodes,
+                        built.edges,
+                        t.id,
+                      );
                       toast.success(`Loaded · ${meta.name}`);
                     }}
                     role="menuitem"
@@ -227,6 +237,36 @@ export function WorkspaceMenu() {
                     </div>
                   </button>
                 ))}
+
+                {/* Reset to template — proje template'ten oluşturulduysa */}
+                {project?.templateId && findTemplate(project.templateId) && (
+                  <>
+                    <div className="border-t border-border px-3 pb-1 pt-2 text-[9.5px] font-semibold uppercase tracking-[0.06em] text-text-dim">
+                      Reset
+                    </div>
+                    <MenuRow
+                      icon="trash"
+                      onClick={async () => {
+                        const tpl = findTemplate(project.templateId!);
+                        if (!tpl) return;
+                        const ok = window.confirm(
+                          `"${tpl.name}" template will be restored to its original state. All changes will be lost (Cmd+Z still works). Continue?`,
+                        );
+                        if (!ok) return;
+                        setOpen(false);
+                        const r = await resetToTemplate();
+                        if (r.ok)
+                          toast.success(`Reset · ${r.templateName ?? 'template'}`);
+                        else toast.error('Reset failed');
+                      }}
+                    >
+                      ↺ Reset to template
+                      <span className="ml-2 text-[9.5px] text-text-dim">
+                        ({findTemplate(project.templateId)?.name})
+                      </span>
+                    </MenuRow>
+                  </>
+                )}
 
                 <div className="border-t border-border px-3 pb-1 pt-2 text-[9.5px] font-semibold uppercase tracking-[0.06em] text-text-dim">
                   Project

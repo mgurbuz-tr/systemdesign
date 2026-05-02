@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type DragEvent } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -19,6 +19,8 @@ import { GroupNode } from './nodes/GroupNode';
 import { CommentNode } from './nodes/CommentNode';
 import { ProtocolEdge } from './edges/ProtocolEdge';
 import { CanvasToolbar } from './Toolbar';
+import { CursorOverlay } from './CursorOverlay';
+import { usePresence } from './usePresence';
 import { useCanvas } from '@/lib/store/canvasStore';
 import { useSettings } from '@/lib/store/settingsStore';
 import { findCatalogItem } from '@/lib/catalog';
@@ -51,10 +53,47 @@ function reorderForParents(nodes: Node<NodeData>[]): Node<NodeData>[] {
 
 function CanvasInner() {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition, getIntersectingNodes } = useReactFlow();
+  const { screenToFlowPosition, getIntersectingNodes, setCenter, fitView } =
+    useReactFlow();
+
+  // Multiplayer cursor presence (BroadcastChannel; aynı projeyi açan sekmeler).
+  usePresence(wrapperRef);
+
+  // Listen for focus events fired from sidebar panels (FindingsList sits
+  // outside the ReactFlow provider, so it can't drive the viewport itself).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ kind: 'node' | 'edge'; id: string }>;
+      const a = ce.detail;
+      if (!a) return;
+      if (a.kind === 'node') {
+        const node = useCanvas.getState().nodes.find((n) => n.id === a.id);
+        if (!node) return;
+        setCenter(node.position.x + 120, node.position.y + 40, {
+          zoom: 1.1,
+          duration: 320,
+        });
+      } else {
+        // Edge: best-effort fitView around source+target nodes.
+        const edge = useCanvas.getState().edges.find((x) => x.id === a.id);
+        if (!edge) return;
+        fitView({
+          duration: 320,
+          padding: 0.18,
+          nodes: [{ id: edge.source }, { id: edge.target }],
+        });
+      }
+    };
+    window.addEventListener('sd:focus-anchor', handler as EventListener);
+    return () =>
+      window.removeEventListener('sd:focus-anchor', handler as EventListener);
+  }, [setCenter, fitView]);
+
   const {
     nodes,
     edges,
+    selectedNodeId,
+    selectedEdgeId,
     onNodesChange,
     onEdgesChange,
     onConnect,
@@ -66,6 +105,42 @@ function CanvasInner() {
   const showGrid = useSettings((s) => s.showGrid);
   const showMinimap = useSettings((s) => s.showMinimap);
   const setInspectorOpen = useSettings((s) => s.setInspectorOpen);
+
+  /**
+   * Bir node/edge seçiliyken "ilgisiz" olanları dim'le. 1-hop komşuluk:
+   * seçili node'un kendisi + edge'lerle bağlı node'lar + bu edge'ler aktif
+   * kalır. Edge seçiliyse source+target node'ları + edge'in kendisi aktif.
+   * Hiçbir şey seçili değilse highlight kapalı (her şey full opacity).
+   */
+  const highlight = useMemo<{
+    nodeIds: Set<string> | null;
+    edgeIds: Set<string> | null;
+  }>(() => {
+    if (!selectedNodeId && !selectedEdgeId) {
+      return { nodeIds: null, edgeIds: null };
+    }
+    if (selectedEdgeId) {
+      const e = edges.find((x) => x.id === selectedEdgeId);
+      if (!e) return { nodeIds: null, edgeIds: null };
+      return {
+        nodeIds: new Set([e.source, e.target]),
+        edgeIds: new Set([selectedEdgeId]),
+      };
+    }
+    // selectedNodeId
+    const conn = edges.filter(
+      (e) => e.source === selectedNodeId || e.target === selectedNodeId,
+    );
+    const nodeIds = new Set<string>([selectedNodeId!]);
+    for (const e of conn) {
+      nodeIds.add(e.source);
+      nodeIds.add(e.target);
+    }
+    return {
+      nodeIds,
+      edgeIds: new Set(conn.map((e) => e.id)),
+    };
+  }, [selectedNodeId, selectedEdgeId, edges]);
 
   const onDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
@@ -180,6 +255,16 @@ function CanvasInner() {
         // Comments stay slightly above nodes so they remain readable.
         const zIndex =
           n.type === 'group' ? 0 : n.type === 'comment' ? 12 : 10;
+        // Highlight: 1-hop komşulara accent outline. Selected node zaten kendi
+        // ring stilini SDNode içinde alıyor; halkayı oraya tekrar koymuyoruz.
+        const isGroup = n.type === 'group';
+        const isComment = n.type === 'comment';
+        const isConnected =
+          highlight.nodeIds !== null &&
+          !isGroup &&
+          !isComment &&
+          n.id !== selectedNodeId &&
+          highlight.nodeIds.has(n.id);
         return {
           ...n,
           draggable: !locked,
@@ -187,9 +272,25 @@ function CanvasInner() {
           connectable: !locked,
           hidden,
           zIndex,
+          className: isConnected ? 'sd-connected' : undefined,
         };
       }),
-    [nodes],
+    [nodes, highlight],
+  );
+
+  const displayEdges = useMemo(
+    () =>
+      (edges as Edge<EdgeData>[]).map((e) => {
+        const isConnected =
+          highlight.edgeIds !== null &&
+          e.id !== selectedEdgeId &&
+          highlight.edgeIds.has(e.id);
+        return {
+          ...e,
+          className: isConnected ? 'sd-connected' : undefined,
+        };
+      }),
+    [edges, highlight, selectedEdgeId],
   );
 
   return (
@@ -202,7 +303,7 @@ function CanvasInner() {
     >
       <ReactFlow
         nodes={displayNodes}
-        edges={edges as Edge<EdgeData>[]}
+        edges={displayEdges}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         defaultEdgeOptions={{ type: 'protocol' }}
@@ -252,6 +353,7 @@ function CanvasInner() {
             }}
           />
         )}
+        <CursorOverlay />
       </ReactFlow>
 
       <CanvasToolbar />
@@ -281,10 +383,10 @@ function EmptyState() {
           ))}
         </div>
         <div className="text-[13px] font-medium text-text">
-          Boş canvas — başlamak için bir component sürükle
+          Empty canvas — drag a component to get started
         </div>
         <div className="mt-1 text-[11px] text-text-dim">
-          Soldaki kütüphaneden Postgres, Redis ya da Kafka deneyebilirsin
+          Try Postgres, Redis or Kafka from the library on the left
         </div>
       </div>
     </div>

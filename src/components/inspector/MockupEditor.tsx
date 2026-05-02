@@ -70,12 +70,12 @@ export function MockupEditor({ mockup, onChange, apiSuggestions = [] }: Props) {
 
         {screens.length === 0 && (
           <div className="rounded-md border border-dashed border-border p-4 text-center text-[11px] text-text-dim">
-            Henüz ekran yok.{' '}
+            No screens yet.{' '}
             <button onClick={addScreen} className="underline">
-              İlkini ekle
+              Add the first one
             </button>
             <p className="mt-1 text-[10px]">
-              Örn: Login, Onboarding, Feed, Settings, Checkout…
+              e.g. Login, Onboarding, Feed, Settings, Checkout…
             </p>
           </div>
         )}
