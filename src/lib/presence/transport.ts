@@ -188,7 +188,11 @@ class WebSocketTransport implements PresenceTransport {
 }
 
 class CompositeTransport implements PresenceTransport {
-  constructor(private transports: PresenceTransport[]) {}
+  private transports: PresenceTransport[];
+
+  constructor(transports: PresenceTransport[]) {
+    this.transports = transports;
+  }
 
   publish(msg: PresenceMsg) {
     for (const t of this.transports) t.publish(msg);

@@ -1,36 +1,12 @@
 services:
-  presence:
-    build:
-      context: .
-      dockerfile: Dockerfile.presence
-    image: system-design-presence:latest
-    container_name: system-design-presence
-    # Internal-only by default. nginx reaches it as http://presence:3001.
-    # Uncomment `ports` for direct dev/debug access (curl, wscat).
-    # ports:
-    #   - "6001:3001"
-    expose:
-      - "3001"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3001/healthz"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
   app:
     build:
       context: .
       dockerfile: Dockerfile
     image: system-design-editor:latest
     container_name: system-design-editor
-    depends_on:
-      presence:
-        condition: service_healthy
-    # On Dokploy / Traefik you can drop `ports` entirely — the platform routes
-    # the configured domain to container port 80 directly. Local docker-compose
-    # users keep host port 6000 mapped.
+    # Single container: nginx (SPA + /ws proxy) + presence WS server,
+    # supervised by supervisord. See Dockerfile + supervisord.conf.
     ports:
       - "6000:80"
     expose:
